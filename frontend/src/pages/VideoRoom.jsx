@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { LiveKitRoom, VideoTrack, AudioTrack, useRoomContext, useTracks } from '@livekit/components-react';
 import { Track, RoomEvent, DataPacket_Kind } from 'livekit-client';
