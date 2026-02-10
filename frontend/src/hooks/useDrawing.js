@@ -98,7 +98,7 @@ export function useDrawing(canvasRef, trackSid, room, isProfessor) {
             prevY: lastPointRef.current.y,
             color,
             lineWidth,
-            isEraser
+            isEraser: !!isEraser // Force boolean
         };
         const payload = encoder.encode(JSON.stringify(dataObject));
 
@@ -126,7 +126,8 @@ export function useDrawing(canvasRef, trackSid, room, isProfessor) {
             if (data.trackSid !== trackSid) return;
 
             if (data.type === 'draw') {
-                drawLine(data.prevX, data.prevY, data.x, data.y, data.color, data.lineWidth, data.isEraser);
+                if (data.isEraser) console.log('✏️ Received ERASER drawing');
+                drawLine(data.prevX, data.prevY, data.x, data.y, data.color, data.lineWidth, !!data.isEraser);
             } else if (data.type === 'clear') {
                 if (canvasRef.current) {
                     const ctx = canvasRef.current.getContext('2d');
