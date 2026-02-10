@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { LiveKitRoom, VideoTrack, AudioTrack, useRoomContext, useTracks } from '@livekit/components-react';
-import { Track, RoomEvent } from 'livekit-client';
+import { Track, RoomEvent, DataPacket_Kind } from 'livekit-client';
 import { useMultiCamera } from '../hooks/useMultiCamera';
 import { useDrawing } from '../hooks/useDrawing';
 import CameraSetup from '../components/CameraSetup';
@@ -298,7 +298,7 @@ function RoomContent({ user, onLeave }) {
                                 };
                                 const encoder = new TextEncoder();
                                 const payload = encoder.encode(JSON.stringify(clearData));
-                                room.localParticipant.publishData(payload, { reliable: true });
+                                room.localParticipant.publishData(payload, DataPacket_Kind.RELIABLE);
 
                                 // Also clear locally
                                 const event = new CustomEvent('clearCanvas', { detail: { trackSid: mainTrackSid } });
