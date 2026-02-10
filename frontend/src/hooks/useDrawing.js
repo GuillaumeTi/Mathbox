@@ -84,25 +84,27 @@ export function useDrawing(canvasRef, trackSid, room, isProfessor) {
         );
 
         // Send to remote via LiveKit data channel
-        if (room && trackSid) {
-            const drawData = {
-                type: 'draw',
-                trackSid,
-                x: currentPoint.x,
-                y: currentPoint.y,
-                prevX: lastPointRef.current.x,
-                prevY: lastPointRef.current.y,
-                color,
-                lineWidth
-            };
+        const encoder = new TextEncoder();
+        const dataObject = {
+            type: 'draw',
+            trackSid,
+            x: currentPoint.x,
+            y: currentPoint.y,
+            prevX: lastPointRef.current.x,
+            prevY: lastPointRef.current.y,
+            color,
+            lineWidth
+        };
+        const payload = encoder.encode(JSON.stringify(dataObject));
 
-            const encoder = new TextEncoder();
-            const payload = encoder.encode(JSON.stringify(drawData));
+        // Fix: publishData(data, options)
+        // options: { reliable: boolean, destination: [], topic: string }
+        if (room && trackSid) {
             room.localParticipant.publishData(payload, { reliable: true });
         }
 
         lastPointRef.current = currentPoint;
-    }, [isProfessor, getRelativeCoords, drawLine, room, trackSid]);
+    }, [isProfessor, getRelativeCoords, room, trackSid, drawLine]);
 
     const stopDrawing = useCallback(() => {
         isDrawingRef.current = false;
