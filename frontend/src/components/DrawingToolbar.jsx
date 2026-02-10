@@ -51,39 +51,37 @@ function DrawingToolbar({
             </div>
 
             {tool === 'pen' && (
-                <>
-                    <div className="toolbar-section">
-                        <div className="toolbar-label">Couleur</div>
-                        <div className="toolbar-colors">
-                            {colors.map(c => (
-                                <button
-                                    key={c.value}
-                                    className={`color-btn ${color === c.value ? 'active' : ''}`}
-                                    style={{ backgroundColor: c.value }}
-                                    onClick={() => setColor(c.value)}
-                                    title={c.name}
-                                />
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="toolbar-section">
-                        <div className="toolbar-label">Épaisseur</div>
-                        <div className="toolbar-slider-container">
-                            <input
-                                type="range"
-                                min="1"
-                                max="20"
-                                value={lineWidth}
-                                onChange={(e) => setLineWidth(parseInt(e.target.value))}
-                                className="toolbar-slider"
-                                title={`Épaisseur: ${lineWidth}px`}
+                <div className="toolbar-section">
+                    <div className="toolbar-label">Couleur</div>
+                    <div className="toolbar-colors">
+                        {colors.map(c => (
+                            <button
+                                key={c.value}
+                                className={`color-btn ${color === c.value ? 'active' : ''}`}
+                                style={{ backgroundColor: c.value }}
+                                onClick={() => setColor(c.value)}
+                                title={c.name}
                             />
-                            <div className="toolbar-slider-value">{lineWidth}px</div>
-                        </div>
+                        ))}
                     </div>
-                </>
+                </div>
             )}
+
+            <div className="toolbar-section">
+                <div className="toolbar-label">Épaisseur</div>
+                <div className="toolbar-slider-container">
+                    <input
+                        type="range"
+                        min="1"
+                        max="100" // Increased max for eraser comfort
+                        value={lineWidth}
+                        onChange={(e) => setLineWidth(parseInt(e.target.value))}
+                        className="toolbar-slider"
+                        title={`Épaisseur: ${lineWidth}px`}
+                    />
+                    <div className="toolbar-slider-value">{lineWidth}px</div>
+                </div>
+            </div>
 
             <div className="toolbar-section">
                 <div className="toolbar-label">Actions</div>

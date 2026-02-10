@@ -106,8 +106,13 @@ function RoomContent({ user, onLeave }) {
     // Drawing state
     const [tool, setTool] = useState('pen');
     const [color, setColor] = useState('#EF4444');
-    const [lineWidth, setLineWidth] = useState(3);
+    const [penWidth, setPenWidth] = useState(3);
+    const [eraserWidth, setEraserWidth] = useState(24);
     const [isScreenSharing, setIsScreenSharing] = useState(false);
+
+    // Active width logic
+    const activeWidth = tool === 'eraser' ? eraserWidth : penWidth;
+    const setActiveWidth = tool === 'eraser' ? setEraserWidth : setPenWidth;
 
     // Get all tracks
     const tracks = useTracks([
@@ -245,7 +250,7 @@ function RoomContent({ user, onLeave }) {
                             isProfessor={isProfessor}
                             tool={tool}
                             color={color}
-                            lineWidth={lineWidth}
+                            lineWidth={activeWidth}
                         />
                     ) : (
                         <div className="no-video-placeholder">
@@ -292,8 +297,8 @@ function RoomContent({ user, onLeave }) {
                         setTool={setTool}
                         color={color}
                         setColor={setColor}
-                        lineWidth={lineWidth}
-                        setLineWidth={setLineWidth}
+                        lineWidth={activeWidth}
+                        setLineWidth={setActiveWidth}
                         onClearAll={() => {
                             if (room && mainTrackSid) {
                                 const clearData = {
