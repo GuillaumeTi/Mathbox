@@ -1,4 +1,5 @@
 import { useRef, useCallback } from 'react';
+import { DataPacket_Kind } from 'livekit-client';
 
 /**
  * Drawing hook inspired by working example
@@ -97,10 +98,9 @@ export function useDrawing(canvasRef, trackSid, room, isProfessor) {
         };
         const payload = encoder.encode(JSON.stringify(dataObject));
 
-        // Fix: publishData(data, options)
-        // options: { reliable: boolean, destination: [], topic: string }
+        // Fix: publishData(data, kind, destination) for v1.15.0
         if (room && trackSid) {
-            room.localParticipant.publishData(payload, { reliable: true });
+            room.localParticipant.publishData(payload, DataPacket_Kind.RELIABLE);
         }
 
         lastPointRef.current = currentPoint;
