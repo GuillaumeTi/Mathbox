@@ -19,6 +19,23 @@ Mathbox is an innovative dual-camera remote tutoring platform designed for mathe
 - **Database**: PostgreSQL
 - **Video/Audio**: LiveKit SDK
 
+## Technical Implementation Details
+
+### Video Architecture
+The dual-camera system uses a specific protocol for track identification without relying on metadata:
+1.  **Student Publishing**: Cameras are published in a strict order:
+    -   **Track 0**: Face Camera (default resolution)
+    -   **Track 1**: Paper/Work Camera (High resolution 1920x1080)
+    -   *No `trackName` is used to maximize compatibility.*
+2.  **Professor Receiving**: The system automatically detects tracks based on their source and order to assign them to the correct view (PiP or Main).
+
+### Drawing System
+Real-time annotation is implemented with a custom overlay system:
+-   **Canvas**: A fixed 1920x1080 transparent canvas overlays the video feed.
+-   **Coordinates**: All drawing coordinates are normalized (0.0 to 1.0) to ensure accurate rendering regardless of the recipient's screen size.
+-   **Transmission**: Drawing data (strokes, clear events) is sent via LiveKit Data Channels for low-latency updates.
+-   **Targeting**: Drawings are specifically routed to the "Paper" camera track using its `trackSid`.
+
 ## Repository Structure
 
 - `frontend/`: React application source code.
