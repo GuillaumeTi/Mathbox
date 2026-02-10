@@ -1,0 +1,125 @@
+import { useState, useEffect } from 'react';
+
+/**
+ * Simplified multi-camera hook
+ * Publishes cameras without trackName for automatic detection
+ */
+export function useMultiCamera(room, isStudent) {
+    const [cameras, setCameras] = useState([]);
+    const [selectedFaceCamera, setSelectedFaceCamera] = useState(null);
+    const [selectedPaperCamera, setSelectedPaperCamera] = useState(null);
+    const [showCameraSetup, setShowCameraSetup] = useState(false);
+    const [singleCameraType, setSingleCameraType] = useState(null);
+    const [publishedTracks, setPublishedTracks] = useState([]);
+
+    // Enumerate cameras
+    useEffect(() => {
+        if (!isStudent) return;
+
+        const enumerateCameras = async () => {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+                console.log('📹 Available cameras:', videoDevices.length);
+                setCameras(videoDevices);
+
+                if (videoDevices.length === 1) {
+                    setShowCameraSetup(true);
+                } else if (videoDevices.length >= 2) {
+                    setSelectedFaceCamera(videoDevices[0].deviceId);
+                    setSelectedPaperCamera(videoDevices[1].deviceId);
+                    setShowCameraSetup(true);
+                }
+            } catch (error) {
+                console.error('Error enumerating cameras:', error);
+            }
+        };
+
+        enumerateCameras();
+    }, [isStudent]);
+
+    // Publish cameras
+    const publishCameras = async () => {
+        console.log('🎬 publishCameras called', {
+            hasRoom: !!room,
+            isStudent,
+            camerasLength: cameras.length,
+            singleCameraType,
+            selectedFaceCamera,
+            selectedPaperCamera
+        });
+
+        if (!room || !isStudent) {
+            console.log('❌ Cannot publish - no room or not student');
+            return;
+        }
+
+        try {
+            const localParticipant = room.localParticipant;
+            const tracks = [];
+
+            // Single camera
+            if (cameras.length === 1 && singleCameraType) {
+                console.log('📹 Publishing single camera with type:', singleCameraType);
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { deviceId: cameras[0].deviceId }
+                });
+
+                const track = stream.getVideoTracks()[0];
+                await localParticipant.publishTrack(track);
+                tracks.push(track);
+
+                console.log('✅ Published 1 camera');
+            }
+            // Dual cameras
+            else if (selectedFaceCamera && selectedPaperCamera) {
+                console.log('📹 Publishing dual cameras');
+
+                // Publish face camera first
+                const faceStream = await navigator.mediaDevices.getUserMedia({
+                    video: { deviceId: selectedFaceCamera }
+                });
+                const faceTrack = faceStream.getVideoTracks()[0];
+                await localParticipant.publishTrack(faceTrack);
+                tracks.push(faceTrack);
+
+                // Publish paper camera second
+                const paperStream = await navigator.mediaDevices.getUserMedia({
+                    video: { deviceId: selectedPaperCamera }
+                });
+                const paperTrack = paperStream.getVideoTracks()[0];
+                await localParticipant.publishTrack(paperTrack);
+                tracks.push(paperTrack);
+
+                console.log('✅ Published 2 cameras (face first, paper second)');
+            } else {
+                console.log('❌ Cannot publish - invalid camera configuration', {
+                    camerasLength: cameras.length,
+                    singleCameraType,
+                    selectedFaceCamera,
+                    selectedPaperCamera
+                });
+            }
+
+            setPublishedTracks(tracks);
+            // Don't close modal here - let onConfirm handle it
+        } catch (error) {
+            console.error('❌ Error publishing cameras:', error);
+        }
+    };
+
+    return {
+        cameras,
+        selectedFaceCamera,
+        setSelectedFaceCamera,
+        selectedPaperCamera,
+        setSelectedPaperCamera,
+        showCameraSetup,
+        setShowCameraSetup,
+        singleCameraType,
+        setSingleCameraType,
+        publishCameras,
+        publishedTracks
+    };
+}

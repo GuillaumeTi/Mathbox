@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Student View - Mathbox Proto</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      color: #fff;
+    }
+
+    .header {
+      padding: 1.5rem;
+      background: rgba(0, 0, 0, 0.3);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .header h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+
+    .controls {
+      padding: 1.5rem;
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .input-group label {
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+
+    .input-group input {
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.9);
+      color: #333;
+      font-size: 1rem;
+    }
+
+    button {
+      padding: 0.75rem 1.5rem;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-size: 1rem;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+    }
+
+    .btn-danger {
+      background: #ef4444;
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background: #dc2626;
+    }
+
+    .video-container {
+      flex: 1;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 1.5rem;
+      padding: 1.5rem;
+      overflow: auto;
+    }
+
+    .video-wrapper {
+      position: relative;
+      background: rgba(0, 0, 0, 0.5);
+      border-radius: 12px;
+      overflow: hidden;
+      aspect-ratio: 16/9;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    }
+
+    .video-wrapper video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .drawing-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .video-label {
+      position: absolute;
+      top: 1rem;
+      left: 1rem;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      z-index: 5;
+    }
+
+    .status {
+      padding: 1rem 1.5rem;
+      background: rgba(0, 0, 0, 0.3);
+      backdrop-filter: blur(10px);
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      font-size: 0.875rem;
+    }
+
+    .status.connected {
+      background: rgba(16, 185, 129, 0.2);
+    }
+
+    .status.disconnected {
+      background: rgba(239, 68, 68, 0.2);
+    }
+
+    #cameraSelect {
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.9);
+      color: #333;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="header">
+    <div style="display: flex; align-items: center; gap: 1rem;">
+      <button onclick="goBack()"
+        style="padding: 0.5rem 1rem; border: none; border-radius: 8px; background: rgba(255,255,255,0.2); color: white; cursor: pointer; font-weight: 600;">←
+        Retour</button>
+      <h1>📚 Student View - Mathbox Proto</h1>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="input-group">
+      <label for="roomName">Room Name</label>
+      <input type="text" id="roomName" placeholder="Enter room name" value="demo-room">
+    </div>
+    <div class="input-group">
+      <label for="studentName">Your Name</label>
+      <input type="text" id="studentName" placeholder="Enter your name" value="Student">
+    </div>
+    <div class="input-group">
+      <label for="cameraSelect">Select Cameras</label>
+      <select id="cameraSelect" multiple size="3"></select>
+    </div>
+    <button id="connectBtn" class="btn-primary">Connect & Stream</button>
+    <button id="disconnectBtn" class="btn-danger" style="display: none;">Disconnect</button>
+  </div>
+
+  <div class="video-container" id="videoContainer"></div>
+
+  <div class="status disconnected" id="status">
+    Status: Disconnected
+  </div>
+
+  <!-- LiveKit SDK from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+
+  <script>
+    // Parse URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const roomFromUrl = urlParams.get('room');
+    const subjectFromUrl = urlParams.get('subject');
+
+    // Back button function
+    function goBack() {
+      window.location.href = 'student-dashboard.html';
+    }
+
+    // LiveKit room instance
+    let room = null;
+    let localTracks = [];
+    const canvases = new Map(); // Map to store canvas for each video track
+
+    // DOM elements
+    const connectBtn = document.getElementById('connectBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const roomNameInput = document.getElementById('roomName');
+    const studentNameInput = document.getElementById('studentName');
+    const cameraSelect = document.getElementById('cameraSelect');
+    const videoContainer = document.getElementById('videoContainer');
+    const statusDiv = document.getElementById('status');
+
+    /**
+     * Enumerate available video devices and populate the camera selector
+     */
+    async function enumerateCameras() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+        cameraSelect.innerHTML = '';
+        videoDevices.forEach((device, index) => {
+          const option = document.createElement('option');
+          option.value = device.deviceId;
+          option.text = device.label || `Camera ${index + 1}`;
+          cameraSelect.appendChild(option);
+        });
+
+        // Auto-select first two cameras if available
+        if (videoDevices.length >= 2) {
+          cameraSelect.options[0].selected = true;
+          cameraSelect.options[1].selected = true;
+        }
+      } catch (error) {
+        console.error('Error enumerating cameras:', error);
+        updateStatus('Error accessing cameras', false);
+      }
+    }
+
+    /**
+     * Update status display
+     */
+    function updateStatus(message, connected = false) {
+      statusDiv.textContent = `Status: ${message}`;
+      statusDiv.className = `status ${connected ? 'connected' : 'disconnected'}`;
+    }
+
+    /**
+     * Create a video element with overlay canvas for a track
+     */
+    function createVideoElement(track, label) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'video-wrapper';
+      wrapper.id = `wrapper-${track.sid}`;
+
+      const videoLabel = document.createElement('div');
+      videoLabel.className = 'video-label';
+      videoLabel.textContent = label;
+
+      const video = document.createElement('video');
+      video.autoplay = true;
+      video.playsInline = true;
+      video.muted = true;
+      track.attach(video);
+
+      // Create transparent canvas overlay for drawing
+      const canvas = document.createElement('canvas');
+      canvas.className = 'drawing-canvas';
+      canvas.width = 1920; // High resolution for drawing
+      canvas.height = 1080;
+
+      // Store canvas reference
+      canvases.set(track.sid, canvas);
+
+      wrapper.appendChild(video);
+      wrapper.appendChild(canvas);
+      wrapper.appendChild(videoLabel);
+      videoContainer.appendChild(wrapper);
+
+      return wrapper;
+    }
+
+    /**
+     * Handle incoming data packets (drawing instructions from teacher)
+     */
+    function handleDataReceived(payload, participant) {
+      try {
+        const decoder = new TextDecoder();
+        const data = JSON.parse(decoder.decode(payload));
+
+        // Data format: { trackSid, type, x, y, prevX, prevY, color, lineWidth }
+        if (data.type === 'draw') {
+          const canvas = canvases.get(data.trackSid);
+          if (!canvas) return;
+
+          const ctx = canvas.getContext('2d');
+
+          // Convert relative coordinates (0.0-1.0) to canvas coordinates
+          const x = data.x * canvas.width;
+          const y = data.y * canvas.height;
+          const prevX = data.prevX * canvas.width;
+          const prevY = data.prevY * canvas.height;
+
+          ctx.strokeStyle = data.color || '#FF0000';
+          ctx.lineWidth = data.lineWidth || 3;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+
+          ctx.beginPath();
+          ctx.moveTo(prevX, prevY);
+          ctx.lineTo(x, y);
+          ctx.stroke();
+        } else if (data.type === 'clear') {
+          const canvas = canvases.get(data.trackSid);
+          if (!canvas) return;
+
+          const ctx = canvas.getContext('2d');
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+      } catch (error) {
+        console.error('Error handling data:', error);
+      }
+    }
+
+    /**
+     * Connect to LiveKit room and publish camera streams
+     */
+    async function connect() {
+      const roomName = roomNameInput.value.trim();
+      const studentName = studentNameInput.value.trim();
+
+      if (!roomName || !studentName) {
+        alert('Please enter both room name and your name');
+        return;
+      }
+
+      const selectedCameras = Array.from(cameraSelect.selectedOptions).map(opt => opt.value);
+      if (selectedCameras.length === 0) {
+        alert('Please select at least one camera');
+        return;
+      }
+
+      try {
+        updateStatus('Connecting...', false);
+
+        // Get token from server
+        const response = await fetch(`/get-token?roomName=${encodeURIComponent(roomName)}&participantName=${encodeURIComponent(studentName)}&role=student`);
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to get token');
+        }
+
+        // Determine WebSocket URL based on page protocol
+        // When accessed via HTTPS (e.g., LocalTunnel), use the proxy endpoint
+        // When accessed via HTTP (local), connect directly to LiveKit server
+        let wsUrl;
+        if (window.location.protocol === 'https:') {
+          // Use proxy when accessed via HTTPS (LocalTunnel)
+          wsUrl = `wss://${window.location.host}/livekit-ws`;
+          console.log('Using WebSocket proxy for HTTPS connection:', wsUrl);
+        } else {
+          // Use direct connection when accessed locally via HTTP
+          wsUrl = data.url;
+          console.log('Using direct LiveKit connection:', wsUrl);
+        }
+
+        // Create room instance
+        room = new LivekitClient.Room({
+          adaptiveStream: true,
+          dynacast: true,
+        });
+
+        // Set up event listeners
+        room.on(LivekitClient.RoomEvent.DataReceived, handleDataReceived);
+
+        // Handle remote participant tracks (teacher's video)
+        room.on(LivekitClient.RoomEvent.TrackSubscribed, (track, publication, participant) => {
+          if (track.kind === LivekitClient.Track.Kind.Video) {
+            console.log(`Received video track from ${participant.identity}`);
+            const label = `👨‍🏫 ${participant.identity}`;
+            createVideoElement(track, label);
+          }
+        });
+
+        room.on(LivekitClient.RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
+          const wrapper = document.getElementById(`wrapper-${track.sid}`);
+          if (wrapper) {
+            wrapper.remove();
+          }
+          canvases.delete(track.sid);
+        });
+
+        room.on(LivekitClient.RoomEvent.Disconnected, () => {
+          updateStatus('Disconnected', false);
+          cleanup();
+        });
+
+        // Connect to room
+        await room.connect(wsUrl, data.token);
+        updateStatus(`Connected to room: ${roomName}`, true);
+
+        // Publish camera tracks
+        for (let i = 0; i < selectedCameras.length; i++) {
+          const deviceId = selectedCameras[i];
+          const track = await LivekitClient.createLocalVideoTrack({
+            deviceId: deviceId,
+            resolution: LivekitClient.VideoPresets.h720.resolution,
+          });
+
+          await room.localParticipant.publishTrack(track);
+          localTracks.push(track);
+
+          // Display local video
+          const label = `Camera ${i + 1}`;
+          createVideoElement(track, label);
+        }
+
+        // Update UI
+        connectBtn.style.display = 'none';
+        disconnectBtn.style.display = 'block';
+        roomNameInput.disabled = true;
+        studentNameInput.disabled = true;
+        cameraSelect.disabled = true;
+
+      } catch (error) {
+        console.error('Connection error:', error);
+        updateStatus(`Error: ${error.message}`, false);
+        alert(`Failed to connect: ${error.message}`);
+      }
+    }
+
+    /**
+     * Disconnect from room and cleanup
+     */
+    async function disconnect() {
+      if (room) {
+        await room.disconnect();
+      }
+      cleanup();
+    }
+
+    /**
+     * Cleanup resources
+     */
+    function cleanup() {
+      // Stop and unpublish all local tracks
+      localTracks.forEach(track => {
+        track.stop();
+      });
+      localTracks = [];
+
+      // Clear canvases map
+      canvases.clear();
+
+      // Clear video container
+      videoContainer.innerHTML = '';
+
+      // Reset UI
+      connectBtn.style.display = 'block';
+      disconnectBtn.style.display = 'none';
+      roomNameInput.disabled = false;
+      studentNameInput.disabled = false;
+      cameraSelect.disabled = false;
+
+      room = null;
+    }
+
+    // Event listeners
+    connectBtn.addEventListener('click', connect);
+    disconnectBtn.addEventListener('click', disconnect);
+
+    // Initialize
+    enumerateCameras();
+
+    // Auto-populate room name from URL if available
+    if (roomFromUrl) {
+      roomNameInput.value = roomFromUrl;
+    }
+  </script>
+</body>
+
+</html>

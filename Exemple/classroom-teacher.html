@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teacher View - Mathbox Proto</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            color: #fff;
+        }
+
+        .header {
+            padding: 1.5rem;
+            background: rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .controls {
+            padding: 1.5rem;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .input-group label {
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .input-group input {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #333;
+            font-size: 1rem;
+        }
+
+        button {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 1rem;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .drawing-tools {
+            padding: 1rem 1.5rem;
+            background: rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .color-picker {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .color-option {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 3px solid transparent;
+            transition: all 0.2s ease;
+        }
+
+        .color-option:hover {
+            transform: scale(1.1);
+        }
+
+        .color-option.active {
+            border-color: white;
+            box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.3);
+        }
+
+        .video-container {
+            flex: 1;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 1.5rem;
+            padding: 1.5rem;
+            overflow: auto;
+        }
+
+        .video-wrapper {
+            position: relative;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 12px;
+            overflow: hidden;
+            aspect-ratio: 16/9;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .video-wrapper video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .drawing-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+            z-index: 10;
+        }
+
+        .video-label {
+            position: absolute;
+            top: 1rem;
+            left: 1rem;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            z-index: 5;
+        }
+
+        .status {
+            padding: 1rem 1.5rem;
+            background: rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 0.875rem;
+        }
+
+        .status.connected {
+            background: rgba(16, 185, 129, 0.2);
+        }
+
+        .status.disconnected {
+            background: rgba(239, 68, 68, 0.2);
+        }
+
+        input[type="range"] {
+            width: 150px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            <button onclick="goBack()"
+                style="padding: 0.5rem 1rem; border: none; border-radius: 8px; background: rgba(255,255,255,0.2); color: white; cursor: pointer; font-weight: 600;">←
+                Retour</button>
+            <h1>👨‍🏫 Teacher View - Mathbox Proto</h1>
+        </div>
+    </div>
+
+    <div class="controls">
+        <div class="input-group">
+            <label for="roomName">Room Name</label>
+            <input type="text" id="roomName" placeholder="Enter room name" value="demo-room">
+        </div>
+        <div class="input-group">
+            <label for="teacherName">Your Name</label>
+            <input type="text" id="teacherName" placeholder="Enter your name" value="Teacher">
+        </div>
+        <button id="connectBtn" class="btn-primary">Connect to Room</button>
+        <button id="disconnectBtn" class="btn-danger" style="display: none;">Disconnect</button>
+    </div>
+
+    <div class="drawing-tools" id="drawingTools" style="display: none;">
+        <span style="font-weight: 600;">Drawing Tools:</span>
+        <div class="color-picker">
+            <div class="color-option active" data-color="#FF0000" style="background: #FF0000;" title="Red"></div>
+            <div class="color-option" data-color="#00FF00" style="background: #00FF00;" title="Green"></div>
+            <div class="color-option" data-color="#0000FF" style="background: #0000FF;" title="Blue"></div>
+            <div class="color-option" data-color="#FFFF00" style="background: #FFFF00;" title="Yellow"></div>
+            <div class="color-option" data-color="#FF00FF" style="background: #FF00FF;" title="Magenta"></div>
+            <div class="color-option" data-color="#FFFFFF" style="background: #FFFFFF;" title="White"></div>
+        </div>
+        <div class="input-group" style="flex-direction: row; align-items: center;">
+            <label for="lineWidth">Line Width:</label>
+            <input type="range" id="lineWidth" min="1" max="10" value="3">
+            <span id="lineWidthValue">3</span>
+        </div>
+        <button id="clearBtn" class="btn-secondary">Clear All Drawings</button>
+    </div>
+
+    <div class="video-container" id="videoContainer"></div>
+
+    <div class="status disconnected" id="status">
+        Status: Disconnected
+    </div>
+
+    <!-- LiveKit SDK from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+
+    <script>
+        // Parse URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomFromUrl = urlParams.get('room');
+        const studentFromUrl = urlParams.get('student');
+        const subjectFromUrl = urlParams.get('subject');
+
+        // Back button function
+        function goBack() {
+            window.location.href = 'teacher-dashboard.html';
+        }
+
+        // LiveKit room instance
+        let room = null;
+        const canvases = new Map(); // Map trackSid to canvas element
+        let currentColor = '#FF0000';
+        let currentLineWidth = 3;
+
+        // DOM elements
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const roomNameInput = document.getElementById('roomName');
+        const teacherNameInput = document.getElementById('teacherName');
+        const videoContainer = document.getElementById('videoContainer');
+        const statusDiv = document.getElementById('status');
+        const drawingTools = document.getElementById('drawingTools');
+        const clearBtn = document.getElementById('clearBtn');
+        const lineWidthInput = document.getElementById('lineWidth');
+        const lineWidthValue = document.getElementById('lineWidthValue');
+
+        /**
+         * Update status display
+         */
+        function updateStatus(message, connected = false) {
+            statusDiv.textContent = `Status: ${message}`;
+            statusDiv.className = `status ${connected ? 'connected' : 'disconnected'}`;
+        }
+
+        /**
+         * Send drawing data to all participants
+         */
+        function sendDrawingData(data) {
+            if (!room) return;
+
+            const encoder = new TextEncoder();
+            const payload = encoder.encode(JSON.stringify(data));
+            room.localParticipant.publishData(payload, LivekitClient.DataPacket_Kind.RELIABLE);
+        }
+
+        /**
+         * Create a video element with interactive canvas for a remote track
+         */
+        function createVideoElement(track, participant) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'video-wrapper';
+            wrapper.id = `wrapper-${track.sid}`;
+
+            const videoLabel = document.createElement('div');
+            videoLabel.className = 'video-label';
+            videoLabel.textContent = `${participant.identity} - ${track.source}`;
+
+            const video = document.createElement('video');
+            video.autoplay = true;
+            video.playsInline = true;
+            track.attach(video);
+
+            // Create interactive canvas for drawing
+            const canvas = document.createElement('canvas');
+            canvas.className = 'drawing-canvas';
+            canvas.width = 1920; // High resolution for drawing
+            canvas.height = 1080;
+
+            // Store canvas reference with track SID
+            canvases.set(track.sid, canvas);
+
+            // Set up drawing interaction
+            setupDrawing(canvas, track.sid);
+
+            wrapper.appendChild(video);
+            wrapper.appendChild(canvas);
+            wrapper.appendChild(videoLabel);
+            videoContainer.appendChild(wrapper);
+
+            return wrapper;
+        }
+
+        /**
+         * Set up drawing interaction on canvas
+         */
+        function setupDrawing(canvas, trackSid) {
+            const ctx = canvas.getContext('2d');
+            let isDrawing = false;
+            let lastX = 0;
+            let lastY = 0;
+
+            function getRelativeCoordinates(e) {
+                const rect = canvas.getBoundingClientRect();
+                const x = (e.clientX - rect.left) / rect.width;
+                const y = (e.clientY - rect.top) / rect.height;
+                return { x, y };
+            }
+
+            function startDrawing(e) {
+                isDrawing = true;
+                const coords = getRelativeCoordinates(e);
+                lastX = coords.x;
+                lastY = coords.y;
+            }
+
+            function draw(e) {
+                if (!isDrawing) return;
+
+                const coords = getRelativeCoordinates(e);
+
+                // Draw locally
+                const canvasX = coords.x * canvas.width;
+                const canvasY = coords.y * canvas.height;
+                const prevCanvasX = lastX * canvas.width;
+                const prevCanvasY = lastY * canvas.height;
+
+                ctx.strokeStyle = currentColor;
+                ctx.lineWidth = currentLineWidth;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+
+                ctx.beginPath();
+                ctx.moveTo(prevCanvasX, prevCanvasY);
+                ctx.lineTo(canvasX, canvasY);
+                ctx.stroke();
+
+                // Send drawing data with relative coordinates (0.0 to 1.0)
+                sendDrawingData({
+                    type: 'draw',
+                    trackSid: trackSid,
+                    x: coords.x,
+                    y: coords.y,
+                    prevX: lastX,
+                    prevY: lastY,
+                    color: currentColor,
+                    lineWidth: currentLineWidth
+                });
+
+                lastX = coords.x;
+                lastY = coords.y;
+            }
+
+            function stopDrawing() {
+                isDrawing = false;
+            }
+
+            // Mouse events
+            canvas.addEventListener('mousedown', startDrawing);
+            canvas.addEventListener('mousemove', draw);
+            canvas.addEventListener('mouseup', stopDrawing);
+            canvas.addEventListener('mouseleave', stopDrawing);
+
+            // Touch events for touch screens (Steam Deck)
+            canvas.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                startDrawing(touch);
+            });
+
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                draw(touch);
+            });
+
+            canvas.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                stopDrawing();
+            });
+        }
+
+        /**
+         * Handle track subscribed event
+         */
+        function handleTrackSubscribed(track, publication, participant) {
+            if (track.kind === LivekitClient.Track.Kind.Video) {
+                createVideoElement(track, participant);
+            }
+        }
+
+        /**
+         * Handle track unsubscribed event
+         */
+        function handleTrackUnsubscribed(track) {
+            const wrapper = document.getElementById(`wrapper-${track.sid}`);
+            if (wrapper) {
+                wrapper.remove();
+            }
+            canvases.delete(track.sid);
+        }
+
+        /**
+         * Connect to LiveKit room
+         */
+        async function connect() {
+            const roomName = roomNameInput.value.trim();
+            const teacherName = teacherNameInput.value.trim();
+
+            if (!roomName || !teacherName) {
+                alert('Please enter both room name and your name');
+                return;
+            }
+
+            try {
+                updateStatus('Connecting...', false);
+
+                // Get token from server
+                const response = await fetch(`/get-token?roomName=${encodeURIComponent(roomName)}&participantName=${encodeURIComponent(teacherName)}&role=teacher`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to get token');
+                }
+
+                // Determine WebSocket URL based on page protocol
+                // When accessed via HTTPS (e.g., LocalTunnel), use the proxy endpoint
+                // When accessed via HTTP (local), connect directly to LiveKit server
+                let wsUrl;
+                if (window.location.protocol === 'https:') {
+                    // Use proxy when accessed via HTTPS (LocalTunnel)
+                    wsUrl = `wss://${window.location.host}/livekit-ws`;
+                    console.log('Using WebSocket proxy for HTTPS connection:', wsUrl);
+                } else {
+                    // Use direct connection when accessed locally via HTTP
+                    wsUrl = data.url;
+                    console.log('Using direct LiveKit connection:', wsUrl);
+                }
+
+                // Create room instance
+                room = new LivekitClient.Room({
+                    adaptiveStream: true,
+                    dynacast: true,
+                });
+
+                // Set up event listeners
+                room.on(LivekitClient.RoomEvent.TrackSubscribed, handleTrackSubscribed);
+                room.on(LivekitClient.RoomEvent.TrackUnsubscribed, handleTrackUnsubscribed);
+
+                room.on(LivekitClient.RoomEvent.Disconnected, () => {
+                    updateStatus('Disconnected', false);
+                    cleanup();
+                });
+
+                // Connect to room
+                await room.connect(wsUrl, data.token);
+                updateStatus(`Connected to room: ${roomName}`, true);
+
+                // Try to publish teacher's camera if available
+                try {
+                    const devices = await navigator.mediaDevices.enumerateDevices();
+                    const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+                    if (videoDevices.length > 0) {
+                        console.log(`Found ${videoDevices.length} camera(s), publishing teacher video...`);
+
+                        // Create and publish teacher's camera track
+                        const cameraTrack = await LivekitClient.createLocalVideoTrack({
+                            resolution: LivekitClient.VideoPresets.h720.resolution,
+                        });
+
+                        await room.localParticipant.publishTrack(cameraTrack);
+
+                        // Display teacher's own video
+                        const wrapper = document.createElement('div');
+                        wrapper.className = 'video-wrapper';
+                        wrapper.id = 'teacher-video';
+
+                        const videoLabel = document.createElement('div');
+                        videoLabel.className = 'video-label';
+                        videoLabel.textContent = '👨‍🏫 Your Camera';
+
+                        const video = document.createElement('video');
+                        video.autoplay = true;
+                        video.playsInline = true;
+                        video.muted = true; // Mute own video
+                        cameraTrack.attach(video);
+
+                        wrapper.appendChild(video);
+                        wrapper.appendChild(videoLabel);
+                        videoContainer.appendChild(wrapper);
+
+                        updateStatus(`Connected to room: ${roomName} (with camera)`, true);
+                    } else {
+                        console.log('No camera detected, continuing without video');
+                        updateStatus(`Connected to room: ${roomName} (no camera)`, true);
+                    }
+                } catch (cameraError) {
+                    console.warn('Could not access camera:', cameraError);
+                    updateStatus(`Connected to room: ${roomName} (camera unavailable)`, true);
+                }
+
+                // Subscribe to existing tracks
+                room.remoteParticipants.forEach(participant => {
+                    participant.trackPublications.forEach(publication => {
+                        if (publication.track) {
+                            handleTrackSubscribed(publication.track, publication, participant);
+                        }
+                    });
+                });
+
+                // Update UI
+                connectBtn.style.display = 'none';
+                disconnectBtn.style.display = 'block';
+                drawingTools.style.display = 'flex';
+                roomNameInput.disabled = true;
+                teacherNameInput.disabled = true;
+
+            } catch (error) {
+                console.error('Connection error:', error);
+                updateStatus(`Error: ${error.message}`, false);
+                alert(`Failed to connect: ${error.message}`);
+            }
+        }
+
+        /**
+         * Disconnect from room
+         */
+        async function disconnect() {
+            if (room) {
+                await room.disconnect();
+            }
+            cleanup();
+        }
+
+        /**
+         * Cleanup resources
+         */
+        function cleanup() {
+            canvases.clear();
+            videoContainer.innerHTML = '';
+
+            connectBtn.style.display = 'block';
+            disconnectBtn.style.display = 'none';
+            drawingTools.style.display = 'none';
+            roomNameInput.disabled = false;
+            teacherNameInput.disabled = false;
+
+            room = null;
+        }
+
+        /**
+         * Clear all drawings
+         */
+        function clearAllDrawings() {
+            canvases.forEach((canvas, trackSid) => {
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // Send clear command
+                sendDrawingData({
+                    type: 'clear',
+                    trackSid: trackSid
+                });
+            });
+        }
+
+        // Event listeners
+        connectBtn.addEventListener('click', connect);
+        disconnectBtn.addEventListener('click', disconnect);
+        clearBtn.addEventListener('click', clearAllDrawings);
+
+        // Color picker
+        document.querySelectorAll('.color-option').forEach(option => {
+            option.addEventListener('click', () => {
+                document.querySelectorAll('.color-option').forEach(o => o.classList.remove('active'));
+                option.classList.add('active');
+                currentColor = option.dataset.color;
+            });
+        });
+
+        // Line width
+        lineWidthInput.addEventListener('input', (e) => {
+            currentLineWidth = parseInt(e.target.value);
+            lineWidthValue.textContent = currentLineWidth;
+        });
+
+        // Auto-populate room name from URL if available
+        if (roomFromUrl) {
+            roomNameInput.value = roomFromUrl;
+        }
+    </script>
+</body>
+
+</html>

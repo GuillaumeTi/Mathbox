@@ -1,0 +1,177 @@
+/* Drawing Toolbar */
+.drawing-toolbar {
+    position: absolute;
+    left: 2rem;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(26, 32, 44, 0.95);
+    backdrop-filter: blur(20px);
+    border-radius: 16px;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    z-index: 100;
+    max-width: 200px;
+}
+
+.toolbar-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.toolbar-label {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.toolbar-tools,
+.toolbar-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.tool-btn,
+.action-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    color: white;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.tool-btn:hover,
+.action-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(102, 126, 234, 0.5);
+    transform: translateX(4px);
+}
+
+.tool-btn.active,
+.action-btn.active {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-color: #667eea;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.tool-btn svg,
+.action-btn svg {
+    stroke-width: 2;
+    flex-shrink: 0;
+}
+
+.toolbar-colors {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.color-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.color-btn:hover {
+    transform: scale(1.1);
+    border-color: rgba(255, 255, 255, 0.5);
+}
+
+.color-btn.active {
+    border-color: white;
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.3);
+    transform: scale(1.15);
+}
+
+.color-btn.active::after {
+    content: '✓';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-weight: bold;
+    font-size: 1.25rem;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .drawing-toolbar {
+        left: 1rem;
+        padding: 1rem;
+        max-width: 160px;
+    }
+
+    .tool-btn,
+    .action-btn {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.75rem;
+    }
+
+    .tool-btn svg,
+    .action-btn svg {
+        width: 18px;
+        height: 18px;
+    }
+
+    .color-btn {
+        width: 32px;
+        height: 32px;
+    }
+}
+
+/* Mobile - Horizontal toolbar at bottom */
+@media (max-width: 640px) {
+    .drawing-toolbar {
+        left: 0;
+        right: 0;
+        top: auto;
+        bottom: 0;
+        transform: none;
+        border-radius: 16px 16px 0 0;
+        flex-direction: row;
+        max-width: none;
+        padding: 1rem;
+        overflow-x: auto;
+    }
+
+    .toolbar-section {
+        min-width: fit-content;
+    }
+
+    .toolbar-tools,
+    .toolbar-actions {
+        flex-direction: row;
+    }
+
+    .tool-btn span,
+    .action-btn span {
+        display: none;
+    }
+
+    .tool-btn,
+    .action-btn {
+        padding: 0.75rem;
+        min-width: 44px;
+        justify-content: center;
+    }
+}

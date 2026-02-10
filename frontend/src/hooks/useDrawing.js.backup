@@ -1,0 +1,146 @@
+import { useRef, useCallback } from 'react';
+
+/**
+ * Simplified drawing hook based on working example
+ * Uses fixed canvas size and relative coordinates
+ */
+export function useDrawing(canvasRef, trackSid, room, isProfessor) {
+    const isDrawingRef = useRef(false);
+    const lastPosRef = useRef({ x: 0, y: 0 });
+
+    const getRelativeCoordinates = useCallback((e, canvas) => {
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.clientX || e.touches?.[0]?.clientX || 0;
+        const clientY = e.clientY || e.touches?.[0]?.clientY || 0;
+
+        const x = (clientX - rect.left) / rect.width;
+        const y = (clientY - rect.top) / rect.height;
+
+        return { x, y };
+    }, []);
+
+    const drawLine = useCallback((canvas, fromX, fromY, toX, toY, color, lineWidth) => {
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        // Convert relative coordinates (0-1) to canvas coordinates
+        const canvasFromX = fromX * canvas.width;
+        const canvasFromY = fromY * canvas.height;
+        const canvasToX = toX * canvas.width;
+        const canvasToY = toY * canvas.height;
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        ctx.beginPath();
+        ctx.moveTo(canvasFromX, canvasFromY);
+        ctx.lineTo(canvasToX, canvasToY);
+        ctx.stroke();
+    }, []);
+
+    const startDrawing = useCallback((e) => {
+        if (!isProfessor || !canvasRef.current) return;
+
+        e.preventDefault();
+        const canvas = canvasRef.current;
+        const coords = getRelativeCoordinates(e, canvas);
+
+        isDrawingRef.current = true;
+        lastPosRef.current = coords;
+
+        console.log('🖊️ Drawing started at:', coords);
+    }, [isProfessor, canvasRef, getRelativeCoordinates]);
+
+    const draw = useCallback((e, color, lineWidth) => {
+        if (!isDrawingRef.current || !isProfessor || !canvasRef.current) return;
+
+        e.preventDefault();
+        const canvas = canvasRef.current;
+        const coords = getRelativeCoordinates(e, canvas);
+
+        // Draw locally
+        drawLine(canvas, lastPosRef.current.x, lastPosRef.current.y, coords.x, coords.y, color, lineWidth);
+
+        // Send to remote
+        if (room && trackSid) {
+            const drawData = {
+                type: 'draw',
+                trackSid: trackSid,
+                x: coords.x,
+                y: coords.y,
+                prevX: lastPosRef.current.x,
+                prevY: lastPosRef.current.y,
+                color: color,
+                lineWidth: lineWidth
+            };
+
+            const encoder = new TextEncoder();
+            const payload = encoder.encode(JSON.stringify(drawData));
+            room.localParticipant.publishData(payload, { reliable: true });
+        }
+
+        lastPosRef.current = coords;
+    }, [isProfessor, canvasRef, room, trackSid, getRelativeCoordinates, drawLine]);
+
+    const stopDrawing = useCallback(() => {
+        isDrawingRef.current = false;
+    }, []);
+
+    const clearCanvas = useCallback(() => {
+        if (!canvasRef.current) return;
+
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // Send clear command
+        if (room && trackSid && isProfessor) {
+            const clearData = {
+                type: 'clear',
+                trackSid: trackSid
+            };
+
+            const encoder = new TextEncoder();
+            const payload = encoder.encode(JSON.stringify(clearData));
+            room.localParticipant.publishData(payload, { reliable: true });
+        }
+    }, [canvasRef, room, trackSid, isProfessor]);
+
+    // Receive drawing data
+    const handleDataReceived = useCallback((payload) => {
+        if (isProfessor || !canvasRef.current) return; // Only student receives
+
+        try {
+            const decoder = new TextDecoder();
+            const message = JSON.parse(decoder.decode(payload));
+
+            // Only process if it's for this track
+            if (message.trackSid !== trackSid) return;
+
+            const canvas = canvasRef.current;
+
+            if (message.type === 'draw') {
+                drawLine(canvas, message.prevX, message.prevY, message.x, message.y, message.color, message.lineWidth);
+            } else if (message.type === 'clear') {
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                }
+            }
+        } catch (error) {
+            console.error('Error processing drawing data:', error);
+        }
+    }, [isProfessor, canvasRef, trackSid, drawLine]);
+
+    return {
+        startDrawing,
+        draw,
+        stopDrawing,
+        clearCanvas,
+        handleDataReceived
+    };
+}
