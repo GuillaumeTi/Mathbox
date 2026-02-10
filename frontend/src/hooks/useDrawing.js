@@ -126,7 +126,6 @@ export function useDrawing(canvasRef, trackSid, room, isProfessor) {
             if (data.trackSid !== trackSid) return;
 
             if (data.type === 'draw') {
-                if (data.isEraser) console.log('✏️ Received ERASER drawing');
                 drawLine(data.prevX, data.prevY, data.x, data.y, data.color, data.lineWidth, !!data.isEraser);
             } else if (data.type === 'clear') {
                 if (canvasRef.current) {

@@ -370,9 +370,15 @@ function VideoWithCanvas({ trackRef, trackSid, room, isProfessor, tool, color, l
         return () => window.removeEventListener('clearCanvas', handleClear);
     }, [trackSid]);
 
-    // Custom cursor for eraser (white circle with black border)
-    // SVG: <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="white" stroke="black" stroke-width="2"/></svg>
-    const eraserCursor = `url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIxMCIgZmlsbD0id2hpdGUiIHN0cm9rZT0iYmxhY2siIHN0cm9rZS13aWR0aD0iMiIvPjwvc3ZnPg==') 12 12, auto`;
+    // Custom cursor for eraser (white circle with black border matching lineWidth exactly)
+    const eraserCursor = useMemo(() => {
+        const size = Math.max(lineWidth, 4); // Minimum size for visibility
+        const fullSize = size + 2;
+        const center = fullSize / 2;
+        const radius = size / 2;
+        const svg = `<svg width="${fullSize}" height="${fullSize}" viewBox="0 0 ${fullSize} ${fullSize}" xmlns="http://www.w3.org/2000/svg"><circle cx="${center}" cy="${center}" r="${radius}" fill="white" stroke="black" stroke-width="1"/></svg>`;
+        return `url('data:image/svg+xml;base64,${btoa(svg)}') ${center} ${center}, auto`;
+    }, [lineWidth]);
 
     return (
         <div className="main-video-wrapper" ref={videoRef}>
