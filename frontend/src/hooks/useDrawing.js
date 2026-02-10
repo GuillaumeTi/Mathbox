@@ -34,7 +34,7 @@ export function useDrawing(canvasRef, trackSid, room, isProfessor) {
     }, [canvasRef]);
 
     // Draw line on canvas using relative coordinates
-    const drawLine = useCallback((fromX, fromY, toX, toY, color, lineWidth) => {
+    const drawLine = useCallback((fromX, fromY, toX, toY, color, lineWidth, isEraser = false) => {
         if (!canvasRef.current) return;
 
         const canvas = canvasRef.current;
@@ -47,10 +47,12 @@ export function useDrawing(canvasRef, trackSid, room, isProfessor) {
         const absToX = toX * canvas.width;
         const absToY = toY * canvas.height;
 
-        ctx.strokeStyle = color;
+        ctx.strokeStyle = isEraser ? '#000000' : color;
         ctx.lineWidth = lineWidth;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
+
+        ctx.globalCompositeOperation = isEraser ? 'destination-out' : 'source-over';
 
         ctx.beginPath();
         ctx.moveTo(absFromX, absFromY);
@@ -67,7 +69,7 @@ export function useDrawing(canvasRef, trackSid, room, isProfessor) {
         lastPointRef.current = coords;
     }, [isProfessor, getRelativeCoords]);
 
-    const draw = useCallback((e, color, lineWidth) => {
+    const draw = useCallback((e, color, lineWidth, isEraser = false) => {
         if (!isProfessor || !isDrawingRef.current || !lastPointRef.current) return;
 
         e.preventDefault();
@@ -81,7 +83,8 @@ export function useDrawing(canvasRef, trackSid, room, isProfessor) {
             currentPoint.x,
             currentPoint.y,
             color,
-            lineWidth
+            lineWidth,
+            isEraser
         );
 
         // Send to remote via LiveKit data channel
@@ -94,7 +97,8 @@ export function useDrawing(canvasRef, trackSid, room, isProfessor) {
             prevX: lastPointRef.current.x,
             prevY: lastPointRef.current.y,
             color,
-            lineWidth
+            lineWidth,
+            isEraser
         };
         const payload = encoder.encode(JSON.stringify(dataObject));
 
@@ -122,7 +126,7 @@ export function useDrawing(canvasRef, trackSid, room, isProfessor) {
             if (data.trackSid !== trackSid) return;
 
             if (data.type === 'draw') {
-                drawLine(data.prevX, data.prevY, data.x, data.y, data.color, data.lineWidth);
+                drawLine(data.prevX, data.prevY, data.x, data.y, data.color, data.lineWidth, data.isEraser);
             } else if (data.type === 'clear') {
                 if (canvasRef.current) {
                     const ctx = canvasRef.current.getContext('2d');

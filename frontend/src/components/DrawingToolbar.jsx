@@ -5,11 +5,14 @@ function DrawingToolbar({
     setTool,
     color,
     setColor,
+    lineWidth,
+    setLineWidth,
     onClearAll,
     onScreenShare,
     isScreenSharing
 }) {
     const colors = [
+        { name: 'Noir', value: '#000000' },
         { name: 'Rouge', value: '#EF4444' },
         { name: 'Bleu', value: '#3B82F6' },
         { name: 'Vert', value: '#10B981' }
@@ -34,18 +37,6 @@ function DrawingToolbar({
                     </button>
 
                     <button
-                        className={`tool-btn ${tool === 'highlighter' ? 'active' : ''}`}
-                        onClick={() => setTool('highlighter')}
-                        title="Surligneur"
-                    >
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                            <path d="M9 11l3 3L22 4" />
-                            <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
-                        </svg>
-                        <span>Surligneur</span>
-                    </button>
-
-                    <button
                         className={`tool-btn ${tool === 'eraser' ? 'active' : ''}`}
                         onClick={() => setTool('eraser')}
                         title="Gomme"
@@ -56,36 +47,42 @@ function DrawingToolbar({
                         </svg>
                         <span>Gomme</span>
                     </button>
-
-                    <button
-                        className={`tool-btn ${tool === 'laser' ? 'active' : ''}`}
-                        onClick={() => setTool('laser')}
-                        title="Pointeur Laser"
-                    >
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                            <circle cx="12" cy="12" r="3" />
-                            <path d="M12 1v6m0 6v6M1 12h6m6 0h6" />
-                        </svg>
-                        <span>Laser</span>
-                    </button>
                 </div>
             </div>
 
             {tool === 'pen' && (
-                <div className="toolbar-section">
-                    <div className="toolbar-label">Couleur</div>
-                    <div className="toolbar-colors">
-                        {colors.map(c => (
-                            <button
-                                key={c.value}
-                                className={`color-btn ${color === c.value ? 'active' : ''}`}
-                                style={{ backgroundColor: c.value }}
-                                onClick={() => setColor(c.value)}
-                                title={c.name}
-                            />
-                        ))}
+                <>
+                    <div className="toolbar-section">
+                        <div className="toolbar-label">Couleur</div>
+                        <div className="toolbar-colors">
+                            {colors.map(c => (
+                                <button
+                                    key={c.value}
+                                    className={`color-btn ${color === c.value ? 'active' : ''}`}
+                                    style={{ backgroundColor: c.value }}
+                                    onClick={() => setColor(c.value)}
+                                    title={c.name}
+                                />
+                            ))}
+                        </div>
                     </div>
-                </div>
+
+                    <div className="toolbar-section">
+                        <div className="toolbar-label">Épaisseur</div>
+                        <div className="toolbar-slider-container">
+                            <input
+                                type="range"
+                                min="1"
+                                max="20"
+                                value={lineWidth}
+                                onChange={(e) => setLineWidth(parseInt(e.target.value))}
+                                className="toolbar-slider"
+                                title={`Épaisseur: ${lineWidth}px`}
+                            />
+                            <div className="toolbar-slider-value">{lineWidth}px</div>
+                        </div>
+                    </div>
+                </>
             )}
 
             <div className="toolbar-section">

@@ -106,6 +106,7 @@ function RoomContent({ user, onLeave }) {
     // Drawing state
     const [tool, setTool] = useState('pen');
     const [color, setColor] = useState('#EF4444');
+    const [lineWidth, setLineWidth] = useState(3);
     const [isScreenSharing, setIsScreenSharing] = useState(false);
 
     // Get all tracks
@@ -244,6 +245,7 @@ function RoomContent({ user, onLeave }) {
                             isProfessor={isProfessor}
                             tool={tool}
                             color={color}
+                            lineWidth={lineWidth}
                         />
                     ) : (
                         <div className="no-video-placeholder">
@@ -290,6 +292,8 @@ function RoomContent({ user, onLeave }) {
                         setTool={setTool}
                         color={color}
                         setColor={setColor}
+                        lineWidth={lineWidth}
+                        setLineWidth={setLineWidth}
                         onClearAll={() => {
                             if (room && mainTrackSid) {
                                 const clearData = {
@@ -320,10 +324,18 @@ function RoomContent({ user, onLeave }) {
 }
 
 // Component that combines video and canvas
-function VideoWithCanvas({ trackRef, trackSid, room, isProfessor, tool, color }) {
+function VideoWithCanvas({ trackRef, trackSid, room, isProfessor, tool, color, lineWidth }) {
     const canvasRef = useRef(null);
     const videoRef = useRef(null);
-    const lineWidth = tool === 'highlighter' ? 20 : tool === 'pen' ? 3 : 5;
+    const isEraser = tool === 'eraser';
+
+    // Use the slider value for pen/eraser. 
+    // If you want fixed size for eraser: const currentLineWidth = isEraser ? 20 : lineWidth;
+    // But user asked to configure thickness, so let's stick to slider for both or at least for pen.
+    // The previous code had fixed sizes. Let's use the slider value.
+    // However, eraser usually needs to be bigger. Let's default eraser to a multiplier or just use the slider.
+    // Requester said: "Pour le stylo, je veux que tu rajoutes le noir... et que je puisse configurer l'épaisseur".
+    // Didn't explicitly say for Eraser. But let's apply it to both for flexibility.
 
     // Drawing hook
     const drawing = useDrawing(canvasRef, trackSid, room, isProfessor);
@@ -358,6 +370,10 @@ function VideoWithCanvas({ trackRef, trackSid, room, isProfessor, tool, color })
         return () => window.removeEventListener('clearCanvas', handleClear);
     }, [trackSid]);
 
+    // Custom cursor for eraser (white circle with black border)
+    // SVG: <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="white" stroke="black" stroke-width="2"/></svg>
+    const eraserCursor = `url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIxMCIgZmlsbD0id2hpdGUiIHN0cm9rZT0iYmxhY2siIHN0cm9rZS13aWR0aD0iMiIvPjwvc3ZnPg==') 12 12, auto`;
+
     return (
         <div className="main-video-wrapper" ref={videoRef}>
             <VideoTrack
@@ -373,14 +389,14 @@ function VideoWithCanvas({ trackRef, trackSid, room, isProfessor, tool, color })
                 width={1920}
                 height={1080}
                 onMouseDown={drawing.startDrawing}
-                onMouseMove={(e) => drawing.draw(e, color, lineWidth)}
+                onMouseMove={(e) => drawing.draw(e, color, lineWidth, isEraser)}
                 onMouseUp={drawing.stopDrawing}
                 onMouseLeave={drawing.stopDrawing}
                 onTouchStart={drawing.startDrawing}
-                onTouchMove={(e) => drawing.draw(e, color, lineWidth)}
+                onTouchMove={(e) => drawing.draw(e, color, lineWidth, isEraser)}
                 onTouchEnd={drawing.stopDrawing}
                 style={{
-                    cursor: isProfessor ? 'crosshair' : 'default',
+                    cursor: isProfessor ? (isEraser ? eraserCursor : 'crosshair') : 'default',
                     pointerEvents: isProfessor ? 'auto' : 'none'
                 }}
             />
