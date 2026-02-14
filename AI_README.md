@@ -13,7 +13,11 @@ This document contains critical information for any AI agent taking over the dev
 
 ## 2. 📝 Version Control (Git) Rules
 - **Repository**: [https://github.com/GuillaumeTi/Mathbox](https://github.com/GuillaumeTi/Mathbox)
-- **Current Branch**: Check with `git branch`. Feature work should be on specific branches (e.g., `dev_room_tools`).
+- **Current Branch**: Check with `git branch`.
+- **Branch Strategy**:
+  - **main**: Stable production branch (MVP + Tools v2).
+  - **new_SAaS_Version**: Active development branch for the SAaS version.
+  - **feature/*** : Temporary feature branches.
 - **Commit Message Format (CRITICAL)**:
   You must strictly follow this format for **EVERY** commit:
   ```text
