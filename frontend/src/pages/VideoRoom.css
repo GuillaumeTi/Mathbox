@@ -1,6 +1,8 @@
 /* Video Room Container */
 .video-room-container {
     height: 100vh;
+    /* Fallback */
+    height: 100dvh;
     width: 100vw;
     background: #000;
     overflow: hidden;
@@ -172,8 +174,7 @@
 }
 
 .pip-bottom-right {
-    bottom: 8rem;
-    /* Raised to 8rem for desktop */
+    bottom: calc(8rem + env(safe-area-inset-bottom, 0px));
     right: 2rem;
 }
 
