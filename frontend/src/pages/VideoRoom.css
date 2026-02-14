@@ -103,14 +103,17 @@
     background: #000;
 }
 
+/* Force video element to contain */
+.main-video-wrapper video {
+    object-fit: contain !important;
+    width: 100% !important;
+    height: 100% !important;
+}
+
 .main-video {
     width: 100%;
     height: 100%;
-    object-fit: contain !important;
-    /* Force full view */
-}
-
-.main-video video {
+    /* object-fit on the wrapper might not work if it's a div, but keeping it just in case */
     object-fit: contain !important;
 }
 
@@ -169,8 +172,8 @@
 }
 
 .pip-bottom-right {
-    bottom: 6rem;
-    /* Raised from 2rem to 6rem */
+    bottom: 8rem;
+    /* Raised to 8rem for desktop */
     right: 2rem;
 }
 
@@ -267,7 +270,8 @@
     }
 
     .pip-bottom-right {
-        bottom: 1rem;
+        bottom: 6rem;
+        /* Raised to 6rem for mobile/tablet */
         right: 1rem;
     }
 
