@@ -1,0 +1,95 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  PROF
+  STUDENT
+  ADMIN
+}
+
+enum CourseStatus {
+  SCHEDULED
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      Role     @default(STUDENT)
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // MathBox SaaS specifics
+  credits          Int     @default(0)
+  stripeCustomerId String?
+  subscriptionStatus String? // ACTIVE, INACTIVE, TRIALLING
+
+  // Relations
+  coursesAsProf    Course[] @relation("ProfCourses")
+  coursesAsStudent Course[] @relation("StudentCourses")
+  documents        Document[]
+  transactions     CreditTransaction[]
+}
+
+model Course {
+  id          String       @id @default(uuid())
+  code        String       @unique // e.g. PHY-9921
+  title       String       // e.g. "Cours de Maths - Algèbre"
+  description String?
+  startTime   DateTime
+  duration    Int          // in minutes
+  status      CourseStatus @default(SCHEDULED)
+  
+  professorId String
+  professor   User   @relation("ProfCourses", fields: [professorId], references: [id])
+
+  studentId   String? // For 1-on-1
+  student     User?   @relation("StudentCourses", fields: [studentId], references: [id])
+
+  documents   Document[]
+  
+  recordingUrl String?
+  aiReportUrl  String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Document {
+  id        String   @id @default(uuid())
+  title     String
+  type      String   // EXERCISE, NOTES, SCREENSHOT, REPORT
+  url       String   // S3 path or local path
+  size      Int?
+  
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id])
+
+  courseId  String?
+  course    Course?  @relation(fields: [courseId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model CreditTransaction {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  amount    Int
+  type      String   // PURCHASE, SPEND, REFUND
+  createdAt DateTime @default(now())
+}
