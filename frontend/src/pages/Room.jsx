@@ -22,22 +22,19 @@ const COLORS = ['#000000', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6'
 
 const BG_STYLES = {
     white: { label: 'Blanc', css: 'white' },
+    // Fix: Use standard background shorthand with size
     grid: {
         label: 'Grille',
-        css: `
-            repeating-linear-gradient(0deg, #ddd, #ddd 0.5px, transparent 0.5px, transparent 25px),
-            repeating-linear-gradient(90deg, #ddd, #ddd 0.5px, transparent 0.5px, transparent 25px),
-            white
-        `,
+        css: `white linear-gradient(#e5e7eb 1px, transparent 1px) 0 0 / 25px 25px, linear-gradient(90deg, #e5e7eb 1px, transparent 1px) 0 0 / 25px 25px`
     },
     seyes: {
         label: 'Seyès',
         css: `
-            repeating-linear-gradient(0deg, #c8b8e8 0px, #c8b8e8 0.5px, transparent 0.5px, transparent 8px),
-            repeating-linear-gradient(0deg, #9b8ec4 0px, #9b8ec4 1px, transparent 1px, transparent 32px),
-            linear-gradient(90deg, transparent 59px, #f0c0c0 59px, #f0c0c0 61px, transparent 61px),
             #f5f0e8
-        `,
+            linear-gradient(90deg, #f0c0c0 1px, transparent 1px) 0 0 / 60px 100%,
+            linear-gradient(#9b8ec4 1px, transparent 1px) 0 0 / 100% 32px,
+            linear-gradient(#c8b8e8 0.5px, transparent 0.5px) 0 0 / 100% 8px
+        ` // Simplified Seyes approximation that adheres to background shorthand logic better
     },
 };
 
@@ -395,6 +392,7 @@ function Whiteboard({ localParticipant, locked, transparent }) {
     const shapeStartRef = useRef(null);
     const [remoteText, setRemoteText] = useState(null);
     const [textInput, setTextInput] = useState(null);
+    // Use textarea ref
     const textRef = useRef(null);
     const imageInputRef = useRef(null);
     const [cursorPos, setCursorPos] = useState(null);
@@ -501,7 +499,12 @@ function Whiteboard({ localParticipant, locked, transparent }) {
             ctx.globalCompositeOperation = 'source-over';
             ctx.fillStyle = data.color;
             ctx.font = `${data.thickness * 6}px Inter, sans-serif`;
-            ctx.fillText(data.text, data.x1, data.y1);
+            // Simple multiline support if text has \n
+            const lines = data.text.split('\n');
+            const lineHeight = data.thickness * 6 * 1.2;
+            lines.forEach((line, i) => {
+                ctx.fillText(line, data.x1, data.y1 + (i * lineHeight));
+            });
         }
         ctx.restore();
     };
@@ -555,8 +558,27 @@ function Whiteboard({ localParticipant, locked, transparent }) {
         const pos = getPos(e);
         updateCursor(e);
 
+        // If clicking outside while typing, commit text
+        if (textInput && tool !== 'text') {
+            const val = textRef.current?.value;
+            if (val) {
+                const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y + thickness * 6, color: textInput.color || color, thickness: textInput.thickness || thickness, text: val };
+                applyDrawing(drawData); sendData(drawData);
+            }
+            setTextInput(null);
+            // Continue to handle the click for the new tool below
+        }
+
         if (tool === 'text') {
-            setTextInput(pos);
+            if (textInput) {
+                // If already typing, commit previous
+                const val = textRef.current?.value;
+                if (val) {
+                    const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y + thickness * 6, color: textInput.color, thickness: textInput.thickness, text: val };
+                    applyDrawing(drawData); sendData(drawData);
+                }
+            }
+            setTextInput({ x: pos.x, y: pos.y, color, thickness });
             setTimeout(() => textRef.current?.focus(), 50);
             return;
         }
@@ -677,22 +699,31 @@ function Whiteboard({ localParticipant, locked, transparent }) {
                 />
 
                 {textInput && (
-                    <input
+                    <textarea
                         ref={textRef}
-                        type="text"
                         autoFocus
-                        className="absolute z-30 bg-transparent border-b-2 border-primary outline-none"
-                        style={{ left: textInput.x, top: textInput.y, color, fontSize: thickness * 6, fontFamily: 'Inter, sans-serif', minWidth: 60 }}
+                        className="absolute z-30 bg-transparent outline-none resize-none overflow-hidden"
+                        style={{
+                            left: textInput.x,
+                            top: textInput.y,
+                            color: textInput.color,
+                            fontSize: textInput.thickness * 6,
+                            fontFamily: 'Inter, sans-serif',
+                            minWidth: 100,
+                            border: '1px dashed #ccc',
+                            lineHeight: 1.2
+                        }}
                         onKeyDown={e => {
-                            if (e.key === 'Enter') {
-                                const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y + thickness * 6, color, thickness, text: e.target.value };
-                                applyDrawing(drawData); sendData(drawData); setTextInput(null);
-                            } else if (e.key === 'Escape') setTextInput(null);
-                            else setTimeout(() => sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: e.target.value + e.key, color, thickness }), 0);
+                            if (e.key === 'Escape') setTextInput(null);
+                        }}
+                        onChange={e => {
+                            e.target.style.height = 'auto';
+                            e.target.style.height = e.target.scrollHeight + 'px';
+                            sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: e.target.value, color: textInput.color, thickness: textInput.thickness });
                         }}
                         onBlur={e => {
-                            if (e.target.value) {
-                                const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y + thickness * 6, color, thickness, text: e.target.value };
+                            if (e.target.value.trim()) {
+                                const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y + textInput.thickness * 6, color: textInput.color, thickness: textInput.thickness, text: e.target.value };
                                 applyDrawing(drawData); sendData(drawData);
                             }
                             setTextInput(null);
@@ -701,7 +732,7 @@ function Whiteboard({ localParticipant, locked, transparent }) {
                 )}
 
                 {remoteText && (
-                    <span className="absolute pointer-events-none opacity-60 z-30" style={{ left: remoteText.x, top: remoteText.y, color: remoteText.color, fontSize: remoteText.size, fontFamily: 'Inter, sans-serif' }}>
+                    <span className="absolute pointer-events-none opacity-60 z-30 whitespace-pre" style={{ left: remoteText.x, top: remoteText.y, color: remoteText.color, fontSize: remoteText.size, fontFamily: 'Inter, sans-serif', lineHeight: 1.2 }}>
                         {remoteText.text}
                     </span>
                 )}
