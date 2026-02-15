@@ -12,7 +12,7 @@ import {
 import { Track, DataPacket_Kind, RoomEvent } from 'livekit-client';
 import {
     ArrowLeft, Video, VideoOff, Mic, MicOff, PenTool,
-    Eraser, Type, Square, Circle, Minus, Camera, Trash2,
+    Eraser, Type, Square, Circle, Minus, Triangle, Camera, Trash2,
     Lock, Unlock, MessageSquare, Send, X, Grid3X3,
     Monitor, MonitorOff, ImagePlus,
 } from 'lucide-react';
@@ -47,6 +47,7 @@ const TOOLS = [
     { id: 'line', icon: Minus, label: 'Ligne' },
     { id: 'rect', icon: Square, label: 'Rectangle' },
     { id: 'circle', icon: Circle, label: 'Cercle' },
+    { id: 'triangle', icon: Triangle, label: 'Triangle' },
     { id: 'text', icon: Type, label: 'Texte' },
     { id: 'image', icon: ImagePlus, label: 'Image' },
 ];
@@ -217,6 +218,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
 function Whiteboard({ localParticipant, locked, transparent, isProf }) {
     const room = useRoomContext();
     const canvasRef = useRef(null);
+    const previewCanvasRef = useRef(null); // New Preview Canvas
     const wrapperRef = useRef(null);
     const [tool, setTool] = useState('pen');
     const [color, setColor] = useState(COLORS[3]);
@@ -234,16 +236,23 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
     // Initial resize
     useEffect(() => {
         const handleResize = () => {
+            // Main Canvas
             const canvas = canvasRef.current;
-            if (!canvas || !wrapperRef.current) return;
+            const preview = previewCanvasRef.current;
+            if (!canvas || !preview || !wrapperRef.current) return;
+
             const rect = wrapperRef.current.getBoundingClientRect();
+
             // Save content
             const tmpCanvas = document.createElement('canvas');
             tmpCanvas.width = canvas.width; tmpCanvas.height = canvas.height;
             tmpCanvas.getContext('2d').drawImage(canvas, 0, 0);
 
+            // Resize both
             canvas.width = rect.width; canvas.height = rect.height;
-            // Restore
+            preview.width = rect.width; preview.height = rect.height;
+
+            // Restore main content
             canvas.getContext('2d').drawImage(tmpCanvas, 0, 0);
         };
         handleResize();
@@ -256,6 +265,28 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
         try { await localParticipant.publishData(new TextEncoder().encode(JSON.stringify(payload)), DataPacket_Kind.RELIABLE); } catch (e) { console.error('WS send failed', e); }
     };
 
+    const drawShape = (ctx, type, x1, y1, x2, y2, color, thickness) => {
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = thickness;
+
+        if (type === 'line') {
+            ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+        } else if (type === 'rect') {
+            ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+            return; // strokeRect draws directly
+        } else if (type === 'circle') {
+            const rx = (x2 - x1) / 2; const ry = (y2 - y1) / 2;
+            ctx.ellipse(x1 + rx, y1 + ry, Math.abs(rx), Math.abs(ry), 0, 0, Math.PI * 2);
+        } else if (type === 'triangle') {
+            ctx.moveTo(x1 + (x2 - x1) / 2, y1); // Top center
+            ctx.lineTo(x1, y2); // Bottom left
+            ctx.lineTo(x2, y2); // Bottom right
+            ctx.closePath();
+        }
+        ctx.stroke();
+    };
+
     const applyDrawing = (data) => {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -265,12 +296,9 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
             ctx.globalCompositeOperation = 'source-over'; ctx.beginPath(); ctx.strokeStyle = data.color; ctx.lineWidth = data.thickness; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.moveTo(data.x1, data.y1); ctx.lineTo(data.x2, data.y2); ctx.stroke();
         } else if (data.tool === 'eraser') {
             ctx.globalCompositeOperation = 'destination-out'; ctx.beginPath(); ctx.lineWidth = data.thickness; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.moveTo(data.x1, data.y1); ctx.lineTo(data.x2, data.y2); ctx.stroke();
-        } else if (data.tool === 'line') {
-            ctx.globalCompositeOperation = 'source-over'; ctx.beginPath(); ctx.strokeStyle = data.color; ctx.lineWidth = data.thickness; ctx.moveTo(data.x1, data.y1); ctx.lineTo(data.x2, data.y2); ctx.stroke();
-        } else if (data.tool === 'rect') {
-            ctx.globalCompositeOperation = 'source-over'; ctx.strokeStyle = data.color; ctx.lineWidth = data.thickness; ctx.strokeRect(data.x1, data.y1, data.x2 - data.x1, data.y2 - data.y1);
-        } else if (data.tool === 'circle') {
-            ctx.globalCompositeOperation = 'source-over'; const rx = (data.x2 - data.x1) / 2; const ry = (data.y2 - data.y1) / 2; ctx.beginPath(); ctx.strokeStyle = data.color; ctx.lineWidth = data.thickness; ctx.ellipse(data.x1 + rx, data.y1 + ry, Math.abs(rx), Math.abs(ry), 0, 0, Math.PI * 2); ctx.stroke();
+        } else if (['line', 'rect', 'circle', 'triangle'].includes(data.tool)) {
+            ctx.globalCompositeOperation = 'source-over';
+            drawShape(ctx, data.tool, data.x1, data.y1, data.x2, data.y2, data.color, data.thickness);
         } else if (data.tool === 'text') {
             ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = data.color; ctx.font = `${data.thickness * 6}px Inter, sans-serif`;
             const lines = data.text.split('\n');
@@ -281,6 +309,7 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
     };
 
     const clearCanvas = () => { const ctx = canvasRef.current?.getContext('2d'); ctx?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height); };
+    const clearPreview = () => { const ctx = previewCanvasRef.current?.getContext('2d'); ctx?.clearRect(0, 0, previewCanvasRef.current.width, previewCanvasRef.current.height); };
 
     useEffect(() => {
         if (!room) return;
@@ -305,7 +334,6 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
         return { x: (e.touches ? e.touches[0].clientX : e.clientX) - rect.left, y: (e.touches ? e.touches[0].clientY : e.clientY) - rect.top };
     };
 
-    // Correctly structured useEffect for focus with safer timeout
     useEffect(() => {
         if (textInput && textRef.current) {
             console.log('[Room] Auto-focusing new textarea (delayed)');
@@ -335,12 +363,8 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
 
         if (tool === 'text') {
             console.log('[Room] Text tool click at', pos);
-            // VITAL: Prevent default behavior to stop browser from stealing focus back to body/canvas immediately
             e.preventDefault();
-
             if (textInput) {
-                // Determine if we are clicking INSIDE the existing text input?
-                // Actually the Textarea stops propagation of click usually, so if we are here, we clicked OUTSIDE.
                 console.log('[Room] Committing previous text');
                 const val = textRef.current?.value;
                 if (val && val.trim()) {
@@ -348,7 +372,6 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
                     applyDrawing(drawData); sendData(drawData);
                 }
             }
-            // Start new text
             console.log('[Room] Starting new text');
             setTextInput({ x: pos.x, y: pos.y, color, thickness });
             return;
@@ -358,7 +381,7 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
 
         setIsDrawing(true);
         lastPoint.current = pos;
-        if (['line', 'rect', 'circle'].includes(tool)) shapeStartRef.current = pos;
+        if (['line', 'rect', 'circle', 'triangle'].includes(tool)) shapeStartRef.current = pos;
     };
 
     const onPointerMove = (e) => {
@@ -369,6 +392,11 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
             const drawData = { type: 'draw', tool, x1: lastPoint.current.x, y1: lastPoint.current.y, x2: pos.x, y2: pos.y, color, thickness: tool === 'eraser' ? thickness * 5 : thickness };
             applyDrawing(drawData); sendData(drawData);
             lastPoint.current = pos;
+        } else if (['line', 'rect', 'circle', 'triangle'].includes(tool) && shapeStartRef.current) {
+            // Real-time Preview
+            clearPreview();
+            const ctx = previewCanvasRef.current.getContext('2d');
+            drawShape(ctx, tool, shapeStartRef.current.x, shapeStartRef.current.y, pos.x, pos.y, color, thickness);
         }
     };
 
@@ -376,7 +404,8 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
         if (!isDrawing || locked) return;
         setIsDrawing(false);
         const pos = getPos(e.changedTouches ? e.changedTouches[0] : e);
-        if (['line', 'rect', 'circle'].includes(tool) && shapeStartRef.current) {
+        if (['line', 'rect', 'circle', 'triangle'].includes(tool) && shapeStartRef.current) {
+            clearPreview(); // Clear preview before drawing final
             const drawData = { type: 'draw', tool, x1: shapeStartRef.current.x, y1: shapeStartRef.current.y, x2: pos.x, y2: pos.y, color, thickness };
             applyDrawing(drawData); sendData(drawData);
             shapeStartRef.current = null;
@@ -390,7 +419,6 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
         } else { setCursorPos(null); }
     };
 
-    // Explicit background style logic
     const activeBgInfo = BG_STYLES[background] || BG_STYLES.white;
     const bgStyle = transparent ? { backgroundColor: 'transparent' } : activeBgInfo.style;
 
@@ -416,7 +444,7 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
                     </button>
                 ))}
                 <div className="mt-auto" />
-                <button onClick={() => { if (confirm('Tout effacer ?')) { clearCanvas(); sendData({ type: 'clear' }); } }} className="w-10 h-10 rounded-lg text-red-500 hover:bg-red-100 flex items-center justify-center"><Trash2 className="w-5 h-5" /></button>
+                <button onClick={() => { if (confirm('Tout effacer ?')) { clearCanvas(); clearPreview(); sendData({ type: 'clear' }); } }} className="w-10 h-10 rounded-lg text-red-500 hover:bg-red-100 flex items-center justify-center"><Trash2 className="w-5 h-5" /></button>
             </div>
 
             <div ref={wrapperRef} className="flex-1 relative overflow-hidden" style={bgStyle} onPointerLeave={() => setCursorPos(null)}>
@@ -432,6 +460,12 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
                     onPointerMove={onPointerMove}
                     onPointerUp={onPointerUp}
                     onPointerLeave={() => { setIsDrawing(false); setCursorPos(null); }}
+                />
+
+                {/* Preview Canvas - High z-index, pointer events none so simple pass-through */}
+                <canvas
+                    ref={previewCanvasRef}
+                    className="absolute inset-0 w-full h-full z-20 pointer-events-none"
                 />
 
                 {textInput && (
