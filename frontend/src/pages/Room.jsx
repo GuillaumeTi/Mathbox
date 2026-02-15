@@ -17,14 +17,10 @@ import {
     Monitor, MonitorOff, ImagePlus,
 } from 'lucide-react';
 
-// ─── Constants ───────────────────────────────────────
 const COLORS = ['#000000', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6'];
 
 const BG_STYLES = {
-    white: {
-        label: 'Blanc',
-        style: { backgroundColor: 'white' }
-    },
+    white: { label: 'Blanc', style: { backgroundColor: 'white' } },
     grid: {
         label: 'Grille',
         style: {
@@ -38,11 +34,7 @@ const BG_STYLES = {
         label: 'Seyès',
         style: {
             backgroundColor: '#f5f0e8',
-            backgroundImage: `
-                linear-gradient(90deg, #f0c0c0 1px, transparent 1px),
-                linear-gradient(#9b8ec4 1px, transparent 1px),
-                linear-gradient(#c8b8e8 0.5px, transparent 0.5px)
-            `,
+            backgroundImage: `linear-gradient(90deg, #f0c0c0 1px, transparent 1px), linear-gradient(#9b8ec4 1px, transparent 1px), linear-gradient(#c8b8e8 0.5px, transparent 0.5px)`,
             backgroundSize: '100% 100%, 100% 32px, 100% 8px',
             backgroundPosition: '0 0, 0 0, 0 0'
         }
@@ -72,34 +64,14 @@ export default function Room() {
             try {
                 const data = await api.post('/room/token', { courseCode });
                 setConnectionInfo(data);
-            } catch (err) {
-                setError(err.message);
-            }
+            } catch (err) { setError(err.message); }
             setLoading(false);
         }
         fetchToken();
     }, [courseCode]);
 
-    if (loading) {
-        return (
-            <div className="min-h-screen flex items-center justify-center">
-                <div className="text-center">
-                    <div className="w-12 h-12 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                    <p className="text-muted-foreground">Connexion à la salle...</p>
-                </div>
-            </div>
-        );
-    }
-    if (error) {
-        return (
-            <div className="min-h-screen flex items-center justify-center">
-                <div className="text-center">
-                    <p className="text-red-400 mb-4">{error}</p>
-                    <Button onClick={() => navigate(-1)}>Retour</Button>
-                </div>
-            </div>
-        );
-    }
+    if (loading) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+    if (error) return <div className="min-h-screen flex items-center justify-center">{error}</div>;
 
     return (
         <LiveKitRoom
@@ -124,22 +96,15 @@ export default function Room() {
 function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
     const room = useRoomContext();
     const { localParticipant } = useLocalParticipant();
-
-    // Lifted Chat State
     const [messages, setMessages] = useState([]);
-
-    // Tracks
     const allCameraTracks = useTracks([Track.Source.Camera], { onlySubscribed: false });
     const screenShareTracks = useTracks([Track.Source.ScreenShare], { onlySubscribed: false });
-
-    // State
     const [viewMode, setViewMode] = useState('VIDEO');
     const [chatOpen, setChatOpen] = useState(false);
     const [locked, setLocked] = useState(false);
     const [screenSharing, setScreenSharing] = useState(false);
     const [videoEnabled, setVideoEnabled] = useState(false);
     const [audioEnabled, setAudioEnabled] = useState(false);
-
     const isProf = user.role === 'PROF';
 
     useEffect(() => {
@@ -151,24 +116,14 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
         };
         sync();
         localParticipant.on('trackPublished', sync);
-        localParticipant.on('trackUnpublished', sync);
         localParticipant.on('localTrackPublished', sync);
-        localParticipant.on('localTrackUnpublished', sync);
-        return () => {
-            localParticipant.off('trackPublished', sync);
-            localParticipant.off('trackUnpublished', sync);
-            localParticipant.off('localTrackPublished', sync);
-            localParticipant.off('localTrackUnpublished', sync);
-        };
+        return () => { localParticipant.off('trackPublished', sync); localParticipant.off('localTrackPublished', sync); };
     }, [localParticipant]);
 
     const broadcastMode = useCallback(async (mode) => {
         setViewMode(mode);
         if (!room || !localParticipant) return;
-        try {
-            const msg = JSON.stringify({ type: 'mode', mode });
-            await localParticipant.publishData(new TextEncoder().encode(msg), DataPacket_Kind.RELIABLE);
-        } catch (err) { console.error(err); }
+        try { await localParticipant.publishData(new TextEncoder().encode(JSON.stringify({ type: 'mode', mode })), DataPacket_Kind.RELIABLE); } catch (e) { console.error(e); }
     }, [room, localParticipant]);
 
     const toggleScreenShare = async () => {
@@ -184,9 +139,8 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
 
     const sendChatMessage = async (text) => {
         if (!text.trim() || !room || !localParticipant) return;
-        const msg = { type: 'chat', text, senderName: user.name };
         try {
-            await localParticipant.publishData(new TextEncoder().encode(JSON.stringify(msg)), DataPacket_Kind.RELIABLE);
+            await localParticipant.publishData(new TextEncoder().encode(JSON.stringify({ type: 'chat', text, senderName: user.name })), DataPacket_Kind.RELIABLE);
             setMessages(prev => [...prev, { sender: user.name, text, time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }), isMe: true }]);
         } catch (e) { console.error('Chat failed:', e); }
     };
@@ -216,55 +170,32 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
             <div className="h-12 glass-strong border-b flex items-center justify-between px-4 shrink-0">
                 <div className="flex items-center gap-3">
                     <Button variant="ghost" size="sm" onClick={onLeave}><ArrowLeft className="w-4 h-4 mr-1" /> Quitter</Button>
-                    <Badge variant="success" className="text-xs">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 mr-1.5 animate-pulse" /> En direct — {courseCode}
-                    </Badge>
+                    <Badge variant="success" className="text-xs"><span className="w-2 h-2 rounded-full bg-emerald-400 mr-1.5 animate-pulse" /> En direct</Badge>
                 </div>
                 <div className="flex items-center gap-2">
                     {isProf && (
                         <>
-                            <Button variant={locked ? 'destructive' : 'ghost'} size="sm" onClick={async () => {
-                                const next = !locked; setLocked(next);
-                                if (localParticipant) await localParticipant.publishData(new TextEncoder().encode(JSON.stringify({ type: 'lock', locked: next })), DataPacket_Kind.RELIABLE);
-                            }}>
-                                {locked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-                            </Button>
-                            <Button variant={viewMode === 'BOARD' ? 'default' : 'ghost'} size="sm" onClick={() => (viewMode === 'BOARD' ? broadcastMode('VIDEO') : broadcastMode('BOARD'))}>
-                                <PenTool className="w-4 h-4 mr-1" /> Tableau
-                            </Button>
-                            <Button variant={screenSharing ? 'default' : 'ghost'} size="sm" onClick={toggleScreenShare}>
-                                {screenSharing ? <><MonitorOff className="w-4 h-4 mr-1" /> Stop</> : <><Monitor className="w-4 h-4 mr-1" /> Écran</>}
-                            </Button>
+                            <Button variant={locked ? 'destructive' : 'ghost'} size="sm" onClick={async () => { const next = !locked; setLocked(next); if (localParticipant) await localParticipant.publishData(new TextEncoder().encode(JSON.stringify({ type: 'lock', locked: next })), DataPacket_Kind.RELIABLE); }}>{locked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}</Button>
+                            <Button variant={viewMode === 'BOARD' ? 'default' : 'ghost'} size="sm" onClick={() => (viewMode === 'BOARD' ? broadcastMode('VIDEO') : broadcastMode('BOARD'))}><PenTool className="w-4 h-4 mr-1" /> Tableau</Button>
+                            <Button variant={screenSharing ? 'default' : 'ghost'} size="sm" onClick={toggleScreenShare}>{screenSharing ? <><MonitorOff className="w-4 h-4 mr-1" /> Stop</> : <><Monitor className="w-4 h-4 mr-1" /> Écran</>}</Button>
                         </>
                     )}
-                    <Button variant={chatOpen ? 'default' : 'ghost'} size="sm" onClick={() => setChatOpen(!chatOpen)}>
-                        <MessageSquare className="w-4 h-4 mr-1" /> Chat
-                    </Button>
+                    <Button variant={chatOpen ? 'default' : 'ghost'} size="sm" onClick={() => setChatOpen(!chatOpen)}><MessageSquare className="w-4 h-4 mr-1" /> Chat</Button>
                     <ScreenshotButton sessionId={sessionId} courseId={courseId} />
                 </div>
             </div>
-
             <div className="flex-1 flex overflow-hidden relative">
                 {!showBoard && (
                     <div className="flex-1 relative bg-black">
-                        {remoteVideoTrack ? <VideoTrack trackRef={remoteVideoTrack} className="w-full h-full object-cover" /> :
-                            <div className="w-full h-full flex items-center justify-center"><p className="text-muted-foreground">En attente...</p></div>}
+                        {remoteVideoTrack ? <VideoTrack trackRef={remoteVideoTrack} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><p className="text-muted-foreground">En attente...</p></div>}
                         {localVideoTrack && <div className="absolute bottom-4 right-4 w-48 h-36 rounded-lg overflow-hidden z-10 border-2 border-border shadow-xl"><VideoTrack trackRef={localVideoTrack} className="w-full h-full object-cover mirror" /></div>}
                     </div>
                 )}
-
                 {showBoard && (
                     <>
                         <div className="flex-1 relative">
                             {viewMode === 'SCREEN_SHARE' && activeScreenTrack && <div className="absolute inset-0 z-0"><VideoTrack trackRef={activeScreenTrack} className="w-full h-full object-contain bg-black" /></div>}
-                            <div className={`absolute inset-0 ${viewMode === 'SCREEN_SHARE' ? 'z-10' : 'z-0'}`}>
-                                <Whiteboard
-                                    localParticipant={localParticipant}
-                                    locked={locked && !isProf}
-                                    transparent={viewMode === 'SCREEN_SHARE'}
-                                    isProf={isProf}
-                                />
-                            </div>
+                            <div className={`absolute inset-0 ${viewMode === 'SCREEN_SHARE' ? 'z-10' : 'z-0'}`}><Whiteboard localParticipant={localParticipant} locked={locked && !isProf} transparent={viewMode === 'SCREEN_SHARE'} isProf={isProf} /></div>
                         </div>
                         <div className="w-56 bg-gray-950 border-l border-border flex flex-col gap-2 p-2 shrink-0">
                             {remoteVideoTrack && <div className="w-full aspect-video rounded-lg overflow-hidden border border-border"><VideoTrack trackRef={remoteVideoTrack} className="w-full h-full object-cover" /></div>}
@@ -274,7 +205,6 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
                 )}
                 {chatOpen && <ChatPanel messages={messages} onSendMessage={sendChatMessage} onClose={() => setChatOpen(false)} />}
             </div>
-
             <div className="h-16 glass-strong border-t flex items-center justify-center gap-3 shrink-0">
                 <Button variant={videoEnabled ? 'secondary' : 'destructive'} size="icon" className="rounded-full w-12 h-12" onClick={toggleVideo}>{videoEnabled ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}</Button>
                 <Button variant={audioEnabled ? 'secondary' : 'destructive'} size="icon" className="rounded-full w-12 h-12" onClick={toggleAudio}>{audioEnabled ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}</Button>
@@ -296,30 +226,33 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
     const lastPoint = useRef(null);
     const shapeStartRef = useRef(null);
     const [remoteText, setRemoteText] = useState(null);
-    const [textInput, setTextInput] = useState(null);
+
+    // Text Tool State
+    const [textInput, setTextInput] = useState(null); // { x, y, color, thickness }
     const textRef = useRef(null);
+
     const imageInputRef = useRef(null);
     const [cursorPos, setCursorPos] = useState(null);
 
-    const updateCursor = (e) => {
-        if (tool === 'eraser') {
-            const rect = wrapperRef.current?.getBoundingClientRect();
-            if (rect) setCursorPos({ x: (e.touches ? e.touches[0].clientX : e.clientX) - rect.left, y: (e.touches ? e.touches[0].clientY : e.clientY) - rect.top });
-        } else { setCursorPos(null); }
-    };
+    // Initial resize
+    useEffect(() => {
+        const handleResize = () => {
+            const canvas = canvasRef.current;
+            if (!canvas || !wrapperRef.current) return;
+            const rect = wrapperRef.current.getBoundingClientRect();
+            // Save content
+            const tmpCanvas = document.createElement('canvas');
+            tmpCanvas.width = canvas.width; tmpCanvas.height = canvas.height;
+            tmpCanvas.getContext('2d').drawImage(canvas, 0, 0);
 
-    const handleResize = () => {
-        const canvas = canvasRef.current;
-        if (!canvas || !wrapperRef.current) return;
-        const rect = wrapperRef.current.getBoundingClientRect();
-        const tmpCanvas = document.createElement('canvas');
-        tmpCanvas.width = canvas.width; tmpCanvas.height = canvas.height;
-        tmpCanvas.getContext('2d').drawImage(canvas, 0, 0);
-        canvas.width = rect.width; canvas.height = rect.height;
-        canvas.getContext('2d').drawImage(tmpCanvas, 0, 0);
-    };
-
-    useEffect(() => { handleResize(); window.addEventListener('resize', handleResize); return () => window.removeEventListener('resize', handleResize); }, []);
+            canvas.width = rect.width; canvas.height = rect.height;
+            // Restore
+            canvas.getContext('2d').drawImage(tmpCanvas, 0, 0);
+        };
+        handleResize();
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     const sendData = async (payload) => {
         if (!room || !localParticipant) return;
@@ -375,49 +308,60 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
         return { x: (e.touches ? e.touches[0].clientX : e.clientX) - rect.left, y: (e.touches ? e.touches[0].clientY : e.clientY) - rect.top };
     };
 
-    const handlePointerDown = (e) => {
+    const onPointerDown = (e) => {
+        console.log('[Room] PointerDown', tool, e.clientX, e.clientY);
         if (locked) return;
-
-        // Prevent default touch actions to avoid scrolling while drawing, but allow for text input focus if needed
-        // For text tool, we want to allow default if it's focusing the textarea, but here we are clicking canvas.
-
         const pos = getPos(e);
         updateCursor(e);
 
-        if (textInput && tool !== 'text') {
+        if (tool === 'text') {
+            console.log('[Room] Text tool active at', pos);
+            if (textInput) {
+                // Determine if we are clicking INSIDE the existing text input?
+                // Actually the Textarea stops propagation of click usually, so if we are here, we clicked OUTSIDE.
+                console.log('[Room] Committing previous text');
+                const val = textRef.current?.value;
+                if (val && val.trim()) {
+                    const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val };
+                    applyDrawing(drawData); sendData(drawData);
+                }
+            }
+            // Start new text
+            console.log('[Room] Starting new text input at', pos);
+            setTextInput({ x: pos.x, y: pos.y, color, thickness });
+
+            // Force focus
+            setTimeout(() => {
+                const el = textRef.current;
+                if (el) {
+                    console.log('[Room] Focusing textarea');
+                    el.focus();
+                } else {
+                    console.warn('[Room] Textarea ref missing');
+                }
+            }, 50);
+            return;
+        }
+
+        // Commit any open text if switching tools or clicking elsehwere
+        if (textInput) {
+            console.log('[Room] closing text input from outside click');
             const val = textRef.current?.value;
-            if (val) {
+            if (val && val.trim()) {
                 const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val };
                 applyDrawing(drawData); sendData(drawData);
             }
             setTextInput(null);
         }
 
-        if (tool === 'text') {
-            if (textInput) {
-                const val = textRef.current?.value;
-                if (val) {
-                    const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val };
-                    applyDrawing(drawData); sendData(drawData);
-                }
-            }
-            setTextInput({ x: pos.x, y: pos.y, color, thickness });
-            // Ensure focus is called after render
-            setTimeout(() => textRef.current?.focus(), 50);
-            return;
-        }
-
-        if (tool === 'image') {
-            if (isProf) imageInputRef.current?.click();
-            return;
-        }
+        if (tool === 'image') { if (isProf) imageInputRef.current?.click(); return; }
 
         setIsDrawing(true);
         lastPoint.current = pos;
         if (['line', 'rect', 'circle'].includes(tool)) shapeStartRef.current = pos;
     };
 
-    const handlePointerMove = (e) => {
+    const onPointerMove = (e) => {
         updateCursor(e);
         if (!isDrawing || locked) return;
         const pos = getPos(e);
@@ -428,7 +372,7 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
         }
     };
 
-    const handlePointerUp = (e) => {
+    const onPointerUp = (e) => {
         if (!isDrawing || locked) return;
         setIsDrawing(false);
         const pos = getPos(e.changedTouches ? e.changedTouches[0] : e);
@@ -439,8 +383,16 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
         }
     };
 
+    const updateCursor = (e) => {
+        if (tool === 'eraser') {
+            const rect = wrapperRef.current?.getBoundingClientRect();
+            if (rect) setCursorPos({ x: (e.touches ? e.touches[0].clientX : e.clientX) - rect.left, y: (e.touches ? e.touches[0].clientY : e.clientY) - rect.top });
+        } else { setCursorPos(null); }
+    };
+
+    // Explicit background style logic
     const activeBgInfo = BG_STYLES[background] || BG_STYLES.white;
-    const backgroundStyle = transparent ? { background: 'transparent' } : activeBgInfo.style;
+    const bgStyle = transparent ? { backgroundColor: 'transparent' } : activeBgInfo.style;
 
     return (
         <div className="h-full flex">
@@ -467,21 +419,50 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
                 <button onClick={() => { if (confirm('Tout effacer ?')) { clearCanvas(); sendData({ type: 'clear' }); } }} className="w-10 h-10 rounded-lg text-red-500 hover:bg-red-100 flex items-center justify-center"><Trash2 className="w-5 h-5" /></button>
             </div>
 
-            <div ref={wrapperRef} className="flex-1 relative overflow-hidden" style={backgroundStyle} onPointerLeave={() => setCursorPos(null)}>
+            <div ref={wrapperRef} className="flex-1 relative overflow-hidden" style={bgStyle} onPointerLeave={() => setCursorPos(null)}>
                 {cursorPos && tool === 'eraser' && (
                     <div className="fixed pointer-events-none rounded-full border-2 border-black bg-white/50 z-50 transform -translate-x-1/2 -translate-y-1/2 shadow-sm shadow-white" style={{ left: wrapperRef.current?.getBoundingClientRect().left + cursorPos.x, top: wrapperRef.current?.getBoundingClientRect().top + cursorPos.y, width: thickness * 5, height: thickness * 5 }} />
                 )}
-                <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10" style={{ cursor: tool === 'eraser' ? 'none' : 'crosshair' }} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={() => { setIsDrawing(false); setCursorPos(null); }} onTouchStart={handlePointerDown} onTouchMove={handlePointerMove} onTouchEnd={handlePointerUp} />
+
+                <canvas
+                    ref={canvasRef}
+                    className="absolute inset-0 w-full h-full z-10"
+                    style={{ cursor: tool === 'eraser' ? 'none' : 'crosshair' }}
+                    onPointerDown={onPointerDown}
+                    onPointerMove={onPointerMove}
+                    onPointerUp={onPointerUp}
+                    onPointerLeave={() => { setIsDrawing(false); setCursorPos(null); }}
+                />
 
                 {textInput && (
-                    <textarea ref={textRef} autoFocus className="absolute z-50 bg-white/50 outline-none resize-none overflow-hidden"
-                        style={{ left: textInput.x, top: textInput.y, color: textInput.color, fontSize: `${textInput.thickness * 6}px`, fontFamily: 'Inter, sans-serif', minWidth: '20px', border: '1px dashed #000', lineHeight: 1.2 }}
-                        onKeyDown={e => { if (e.key === 'Escape') setTextInput(null); }}
+                    <textarea
+                        ref={textRef}
+                        // Remove autoFocus from prop, manage via ref
+                        className="absolute z-50 bg-white/80 outline-none resize-none overflow-hidden select-text"
+                        style={{
+                            left: textInput.x,
+                            top: textInput.y,
+                            color: textInput.color,
+                            fontSize: `${textInput.thickness * 6}px`,
+                            fontFamily: 'Inter, sans-serif',
+                            minWidth: '100px', // Bigger min width to see
+                            minHeight: '40px',
+                            border: '2px solid blue', // Very visible debug border
+                            lineHeight: 1.2
+                        }}
+                        placeholder="Type here..."
+                        onKeyDown={e => {
+                            if (e.key === 'Escape') setTextInput(null);
+                            e.stopPropagation(); // Prevent locking
+                        }}
+                        onPointerDown={e => e.stopPropagation()} // Stop canvas click from closing
                         onChange={e => {
-                            e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px';
+                            e.target.style.height = 'auto';
+                            e.target.style.height = e.target.scrollHeight + 'px';
                             sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: e.target.value, color: textInput.color, thickness: textInput.thickness });
                         }}
                         onBlur={e => {
+                            console.log('[Room] Textarea blur');
                             if (e.target.value.trim()) {
                                 const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: e.target.value };
                                 applyDrawing(drawData); sendData(drawData);
@@ -490,6 +471,7 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
                         }}
                     />
                 )}
+
                 {remoteText && <span className="absolute pointer-events-none z-30 whitespace-pre" style={{ left: remoteText.x, top: remoteText.y, color: remoteText.color, fontSize: `${remoteText.size}px`, fontFamily: 'Inter, sans-serif', lineHeight: 1.2, textShadow: '0 0 2px white' }}>{remoteText.text}</span>}
                 <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => { const img = new Image(); img.onload = () => { const w = Math.min(img.width, 400); const h = img.height * (w / img.width); const x = (canvasRef.current.width - w) / 2; const y = (canvasRef.current.height - h) / 2; canvasRef.current.getContext('2d').drawImage(img, x, y, w, h); sendData({ type: 'image', src: ev.target.result, x, y, w, h }); }; img.src = ev.target.result; }; reader.readAsDataURL(file); e.target.value = ''; }} />
             </div>
