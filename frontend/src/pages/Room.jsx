@@ -305,6 +305,14 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
         return { x: (e.touches ? e.touches[0].clientX : e.clientX) - rect.left, y: (e.touches ? e.touches[0].clientY : e.clientY) - rect.top };
     };
 
+    // Correctly structured useEffect for focus
+    useEffect(() => {
+        if (textInput && textRef.current) {
+            console.log('[Room] Auto-focusing new textarea');
+            textRef.current.focus();
+        }
+    }, [textInput]);
+
     const onPointerDown = (e) => {
         console.log('[Room] PointerDown', tool, e.clientX, e.clientY);
         if (locked) return;
@@ -336,16 +344,7 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
             console.log('[Room] Starting new text');
             setTextInput({ x: pos.x, y: pos.y, color, thickness });
 
-            // Force focus
-            setTimeout(() => {
-                const el = textRef.current;
-                if (el) {
-                    console.log('[Room] Focusing');
-                    el.focus();
-                } else {
-                    console.warn('[Room] Textarea ref missing');
-                }
-            }, 50);
+            // NOTE: Focus is handled by useEffect now
             return;
         }
 
