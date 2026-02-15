@@ -226,11 +226,8 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
     const lastPoint = useRef(null);
     const shapeStartRef = useRef(null);
     const [remoteText, setRemoteText] = useState(null);
-
-    // Text Tool State
-    const [textInput, setTextInput] = useState(null); // { x, y, color, thickness }
+    const [textInput, setTextInput] = useState(null);
     const textRef = useRef(null);
-
     const imageInputRef = useRef(null);
     const [cursorPos, setCursorPos] = useState(null);
 
@@ -309,17 +306,23 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
     };
 
     const onPointerDown = (e) => {
-        console.log('[Room] PointerDown', tool, e.clientX, e.clientY);
         if (locked) return;
         const pos = getPos(e);
         updateCursor(e);
 
+        if (textInput && tool !== 'text') {
+            const val = textRef.current?.value;
+            if (val) {
+                const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val };
+                applyDrawing(drawData); sendData(drawData);
+            }
+            setTextInput(null);
+        }
+
         if (tool === 'text') {
-            console.log('[Room] Text tool active at', pos);
             if (textInput) {
                 // Determine if we are clicking INSIDE the existing text input?
                 // Actually the Textarea stops propagation of click usually, so if we are here, we clicked OUTSIDE.
-                console.log('[Room] Committing previous text');
                 const val = textRef.current?.value;
                 if (val && val.trim()) {
                     const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val };
@@ -327,31 +330,14 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
                 }
             }
             // Start new text
-            console.log('[Room] Starting new text input at', pos);
             setTextInput({ x: pos.x, y: pos.y, color, thickness });
 
             // Force focus
             setTimeout(() => {
                 const el = textRef.current;
-                if (el) {
-                    console.log('[Room] Focusing textarea');
-                    el.focus();
-                } else {
-                    console.warn('[Room] Textarea ref missing');
-                }
+                if (el) el.focus();
             }, 50);
             return;
-        }
-
-        // Commit any open text if switching tools or clicking elsehwere
-        if (textInput) {
-            console.log('[Room] closing text input from outside click');
-            const val = textRef.current?.value;
-            if (val && val.trim()) {
-                const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val };
-                applyDrawing(drawData); sendData(drawData);
-            }
-            setTextInput(null);
         }
 
         if (tool === 'image') { if (isProf) imageInputRef.current?.click(); return; }
@@ -436,33 +422,30 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
 
                 {textInput && (
                     <textarea
+                        key={`${textInput.x}-${textInput.y}`}
                         ref={textRef}
-                        // Remove autoFocus from prop, manage via ref
-                        className="absolute z-50 bg-white/80 outline-none resize-none overflow-hidden select-text"
+                        className="absolute z-50 bg-transparent outline-none resize-none overflow-hidden"
                         style={{
                             left: textInput.x,
                             top: textInput.y,
                             color: textInput.color,
                             fontSize: `${textInput.thickness * 6}px`,
                             fontFamily: 'Inter, sans-serif',
-                            minWidth: '100px', // Bigger min width to see
-                            minHeight: '40px',
-                            border: '2px solid blue', // Very visible debug border
+                            minWidth: '20px',
                             lineHeight: 1.2
                         }}
-                        placeholder="Type here..."
+                        autoFocus
                         onKeyDown={e => {
                             if (e.key === 'Escape') setTextInput(null);
-                            e.stopPropagation(); // Prevent locking
+                            e.stopPropagation();
                         }}
-                        onPointerDown={e => e.stopPropagation()} // Stop canvas click from closing
+                        onPointerDown={e => e.stopPropagation()}
                         onChange={e => {
                             e.target.style.height = 'auto';
                             e.target.style.height = e.target.scrollHeight + 'px';
                             sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: e.target.value, color: textInput.color, thickness: textInput.thickness });
                         }}
                         onBlur={e => {
-                            console.log('[Room] Textarea blur');
                             if (e.target.value.trim()) {
                                 const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: e.target.value };
                                 applyDrawing(drawData); sendData(drawData);
