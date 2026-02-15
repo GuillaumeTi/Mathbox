@@ -105,6 +105,7 @@ model Course {
   sessions    Session[]
   documents   Document[]
   homeworks   Homework[]
+  folders     Folder[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
