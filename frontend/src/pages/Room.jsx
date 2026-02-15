@@ -130,6 +130,10 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
     const [chatOpen, setChatOpen] = useState(false);
     const [locked, setLocked] = useState(false);
     const [screenSharing, setScreenSharing] = useState(false);
+
+    // Lifted Chat State
+    const [messages, setMessages] = useState([]);
+
     const isProf = user.role === 'PROF';
 
     // ── Tracks ───────────────────────────────────────
@@ -210,6 +214,15 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
         }
     };
 
+    const sendChatMessage = async (text) => {
+        if (!text.trim() || !room || !localParticipant) return;
+        const msg = { type: 'chat', text, senderName: user.name };
+        try {
+            await localParticipant.publishData(new TextEncoder().encode(JSON.stringify(msg)), DataPacket_Kind.RELIABLE);
+            setMessages(prev => [...prev, { sender: user.name, text, time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }), isMe: true }]);
+        } catch (e) { console.error('Chat failed:', e); }
+    };
+
     // ── Mode Listener (Student) & Global Events ──────
     useEffect(() => {
         if (!room) return;
@@ -231,6 +244,12 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
                 else if (data.type === 'lock') {
                     setLocked(data.locked);
                 }
+                else if (data.type === 'chat') {
+                    setMessages(prev => [...prev, { sender: data.senderName, text: data.text, time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }), isMe: false }]);
+                    if (!chatOpen) {
+                        // Optional: Show unread indicator
+                    }
+                }
             } catch (err) {
                 console.error('[Room] Error decoding message:', err);
             }
@@ -238,7 +257,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
 
         room.on(RoomEvent.DataReceived, handleData);
         return () => room.off(RoomEvent.DataReceived, handleData);
-    }, [room, localParticipant]);
+    }, [room, localParticipant, chatOpen]);
 
     // ── Derive video tracks ──────────────────────────
     const remoteVideoTrack = allCameraTracks.find(
@@ -341,7 +360,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
                     </>
                 )}
 
-                {chatOpen && <ChatPanel localParticipant={localParticipant} user={user} onClose={() => setChatOpen(false)} />}
+                {chatOpen && <ChatPanel messages={messages} onSendMessage={sendChatMessage} onClose={() => setChatOpen(false)} />}
             </div>
 
             {/* Bottom Controls */}
@@ -378,6 +397,22 @@ function Whiteboard({ localParticipant, locked, transparent }) {
     const [textInput, setTextInput] = useState(null);
     const textRef = useRef(null);
     const imageInputRef = useRef(null);
+    const [cursorPos, setCursorPos] = useState(null);
+
+    // Update cursor pos for custom eraser
+    const updateCursor = (e) => {
+        if (tool === 'eraser') {
+            const rect = wrapperRef.current?.getBoundingClientRect();
+            if (rect) {
+                setCursorPos({
+                    x: (e.touches ? e.touches[0].clientX : e.clientX) - rect.left,
+                    y: (e.touches ? e.touches[0].clientY : e.clientY) - rect.top
+                });
+            }
+        } else {
+            setCursorPos(null);
+        }
+    };
 
     // Initial resize
     useEffect(() => {
@@ -518,6 +553,7 @@ function Whiteboard({ localParticipant, locked, transparent }) {
     const handlePointerDown = (e) => {
         if (locked) return;
         const pos = getPos(e);
+        updateCursor(e);
 
         if (tool === 'text') {
             setTextInput(pos);
@@ -535,6 +571,7 @@ function Whiteboard({ localParticipant, locked, transparent }) {
     };
 
     const handlePointerMove = (e) => {
+        updateCursor(e);
         if (!isDrawing || locked) return;
         const pos = getPos(e);
 
@@ -616,12 +653,26 @@ function Whiteboard({ localParticipant, locked, transparent }) {
 
             {/* Canvas */}
             <div ref={wrapperRef} className="flex-1 relative overflow-hidden"
-                style={{ background: transparent ? 'transparent' : BG_STYLES[background]?.css || 'white' }}>
+                style={{ background: transparent ? 'transparent' : BG_STYLES[background]?.css || 'white' }}
+                onPointerLeave={() => setCursorPos(null)}
+            >
+                {/* Custom Eraser Cursor */}
+                {cursorPos && tool === 'eraser' && (
+                    <div className="fixed pointer-events-none rounded-full border border-black dark:border-white bg-white/50 z-50 transform -translate-x-1/2 -translate-y-1/2 shadow-sm"
+                        style={{
+                            left: wrapperRef.current?.getBoundingClientRect().left + cursorPos.x,
+                            top: wrapperRef.current?.getBoundingClientRect().top + cursorPos.y,
+                            width: thickness * 5,
+                            height: thickness * 5
+                        }}
+                    />
+                )}
+
                 <canvas
                     ref={canvasRef}
                     className="absolute inset-0 w-full h-full"
-                    style={{ cursor: locked ? 'not-allowed' : tool === 'eraser' ? 'cell' : 'crosshair' }}
-                    onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={() => setIsDrawing(false)}
+                    style={{ cursor: tool === 'eraser' ? 'none' : 'crosshair' }}
+                    onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={() => { setIsDrawing(false); setCursorPos(null); }}
                     onTouchStart={handlePointerDown} onTouchMove={handlePointerMove} onTouchEnd={handlePointerUp}
                 />
 
@@ -679,38 +730,16 @@ function Whiteboard({ localParticipant, locked, transparent }) {
 // ======================================================
 // CHAT PANEL
 // ======================================================
-function ChatPanel({ localParticipant, user, onClose }) {
-    const room = useRoomContext();
-    const [messages, setMessages] = useState([]);
+function ChatPanel({ messages, onSendMessage, onClose }) {
     const [input, setInput] = useState('');
     const messagesEndRef = useRef(null);
 
-    useEffect(() => {
-        if (!room) return;
-        const handler = (payload, participant) => {
-            if (participant?.identity === localParticipant?.identity) return;
-            try {
-                const data = JSON.parse(new TextDecoder().decode(payload));
-                if (data.type === 'chat') {
-                    setMessages(prev => [...prev, { sender: data.senderName, text: data.text, time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }), isMe: false }]);
-                }
-            } catch (e) { }
-        };
-        room.on(RoomEvent.DataReceived, handler);
-        return () => room.off(RoomEvent.DataReceived, handler);
-    }, [room, localParticipant]);
-
     useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-    const sendMessage = async (e) => {
+    const handleSubmit = (e) => {
         e.preventDefault();
-        if (!input.trim() || !room) return;
-        const msg = { type: 'chat', text: input, senderName: user.name };
-        try {
-            await localParticipant.publishData(new TextEncoder().encode(JSON.stringify(msg)), DataPacket_Kind.RELIABLE);
-            setMessages(prev => [...prev, { sender: user.name, text: input, time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }), isMe: true }]);
-            setInput('');
-        } catch (e) { console.error('Chat failed:', e); }
+        onSendMessage(input);
+        setInput('');
     };
 
     return (
@@ -728,7 +757,7 @@ function ChatPanel({ localParticipant, user, onClose }) {
                 ))}
                 <div ref={messagesEndRef} />
             </div>
-            <form onSubmit={sendMessage} className="p-3 border-t flex gap-2">
+            <form onSubmit={handleSubmit} className="p-3 border-t flex gap-2">
                 <input value={input} onChange={e => setInput(e.target.value)} placeholder="Message..." className="flex-1 h-9 rounded-lg bg-secondary/50 border border-input px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary" />
                 <Button type="submit" size="icon" className="h-9 w-9 shrink-0"><Send className="w-4 h-4" /></Button>
             </form>

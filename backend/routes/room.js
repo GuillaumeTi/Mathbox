@@ -157,18 +157,34 @@ router.post('/screenshot', authMiddleware, async (req, res) => {
     try {
         const { imageData, sessionId, courseId, name } = req.body;
 
-        if (!imageData || !sessionId) {
-            return res.status(400).json({ error: 'Image data and session ID required' });
+        if (!imageData || !sessionId || !courseId) {
+            return res.status(400).json({ error: 'Image data, session ID and course ID required' });
+        }
+
+        // Fetch course details for folder structure
+        const course = await prisma.course.findUnique({
+            where: { id: courseId },
+            include: { student: true }
+        });
+
+        if (!course) {
+            return res.status(404).json({ error: 'Course not found' });
         }
 
         // Convert base64 to buffer
         const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
         const buffer = Buffer.from(base64Data, 'base64');
 
+        // Construct path: bucket/{student_id}/{Course_Name}/{YYYY-MM-DD}/{filename}
+        const studentId = course.studentId || 'general';
+        const courseName = (course.title || course.code).replace(/[^a-zA-Z0-9À-ÿ _-]/g, '');
+        const dateStr = new Date().toISOString().split('T')[0];
+
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const safeName = (name || `Screenshot ${timestamp}`).replace(/[^a-zA-Z0-9À-ÿ _-]/g, '');
-        const filename = `${safeName}_${timestamp}.png`;
-        const targetPath = `${req.user.id}/${courseId || 'general'}/${filename}`;
+        const safeName = (name || `Screenshot ${timestamp}`).replace(/[^a-zA-Z0-9À-ÿ _-]/g, '').trim();
+        const filename = `${safeName}.png`;
+
+        const targetPath = `${studentId}/${courseName}/${dateStr}/${filename}`;
 
         const result = await uploadFile(buffer, targetPath, 'image/png');
 

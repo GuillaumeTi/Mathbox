@@ -16,10 +16,10 @@ echo "========================================="
 
 # 1. Build frontend
 echo ""
-echo "→ Building frontend..."
-cd frontend
-npm run build
-cd ..
+# echo "→ Building frontend..."
+# cd frontend
+# npm run build
+# cd ..
 
 # 2. Create deployment package
 echo ""
@@ -30,7 +30,6 @@ tar czf /tmp/mathbox-deploy.tar.gz \
   --exclude='node_modules' \
   --exclude='.env' \
   --exclude='frontend/node_modules' \
-  --exclude='frontend/dist' \
   backend/ \
   frontend/dist/
 
