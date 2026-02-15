@@ -258,7 +258,12 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
                         <div className="flex-1 relative">
                             {viewMode === 'SCREEN_SHARE' && activeScreenTrack && <div className="absolute inset-0 z-0"><VideoTrack trackRef={activeScreenTrack} className="w-full h-full object-contain bg-black" /></div>}
                             <div className={`absolute inset-0 ${viewMode === 'SCREEN_SHARE' ? 'z-10' : 'z-0'}`}>
-                                <Whiteboard localParticipant={localParticipant} locked={locked && !isProf} transparent={viewMode === 'SCREEN_SHARE'} />
+                                <Whiteboard
+                                    localParticipant={localParticipant}
+                                    locked={locked && !isProf}
+                                    transparent={viewMode === 'SCREEN_SHARE'}
+                                    isProf={isProf}
+                                />
                             </div>
                         </div>
                         <div className="w-56 bg-gray-950 border-l border-border flex flex-col gap-2 p-2 shrink-0">
@@ -279,7 +284,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
     );
 }
 
-function Whiteboard({ localParticipant, locked, transparent }) {
+function Whiteboard({ localParticipant, locked, transparent, isProf }) {
     const room = useRoomContext();
     const canvasRef = useRef(null);
     const wrapperRef = useRef(null);
@@ -358,6 +363,7 @@ function Whiteboard({ localParticipant, locked, transparent }) {
                 else if (data.type === 'text-live') setRemoteText({ x: data.x1, y: data.y1, text: data.text, color: data.color, size: data.thickness * 6 });
                 else if (data.type === 'text-commit') { applyDrawing(data); setRemoteText(null); }
                 else if (data.type === 'image') { const img = new Image(); img.onload = () => { canvasRef.current.getContext('2d').drawImage(img, data.x, data.y, data.w, data.h) }; img.src = data.src; }
+                else if (data.type === 'background') setBackground(data.bg);
             } catch (e) { }
         };
         room.on(RoomEvent.DataReceived, handler);
@@ -371,6 +377,10 @@ function Whiteboard({ localParticipant, locked, transparent }) {
 
     const handlePointerDown = (e) => {
         if (locked) return;
+
+        // Prevent default touch actions to avoid scrolling while drawing, but allow for text input focus if needed
+        // For text tool, we want to allow default if it's focusing the textarea, but here we are clicking canvas.
+
         const pos = getPos(e);
         updateCursor(e);
 
@@ -392,10 +402,15 @@ function Whiteboard({ localParticipant, locked, transparent }) {
                 }
             }
             setTextInput({ x: pos.x, y: pos.y, color, thickness });
-            setTimeout(() => textRef.current?.focus(), 10);
+            // Ensure focus is called after render
+            setTimeout(() => textRef.current?.focus(), 50);
             return;
         }
-        if (tool === 'image') { imageInputRef.current?.click(); return; }
+
+        if (tool === 'image') {
+            if (isProf) imageInputRef.current?.click();
+            return;
+        }
 
         setIsDrawing(true);
         lastPoint.current = pos;
@@ -425,24 +440,26 @@ function Whiteboard({ localParticipant, locked, transparent }) {
     };
 
     const activeBgInfo = BG_STYLES[background] || BG_STYLES.white;
-    // Use explicit style object mapping
     const backgroundStyle = transparent ? { background: 'transparent' } : activeBgInfo.style;
 
     return (
         <div className="h-full flex">
             <div className="w-14 bg-gray-100 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col items-center py-3 gap-1 shrink-0 z-20">
-                {TOOLS.map(t => (
-                    <button key={t.id} onClick={() => { setTool(t.id); if (t.id === 'image') imageInputRef.current?.click(); }} className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${tool === t.id ? 'bg-primary text-white shadow' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800'}`}>
-                        <t.icon className="w-5 h-5" />
-                    </button>
-                ))}
+                {TOOLS.map(t => {
+                    if (t.id === 'image' && !isProf) return null;
+                    return (
+                        <button key={t.id} onClick={() => { setTool(t.id); if (t.id === 'image') imageInputRef.current?.click(); }} className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${tool === t.id ? 'bg-primary text-white shadow' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800'}`}>
+                            <t.icon className="w-5 h-5" />
+                        </button>
+                    );
+                })}
                 <div className="w-8 border-t border-gray-300 dark:border-gray-600 my-2" />
                 {COLORS.map(c => <button key={c} onClick={() => setColor(c)} className={`w-7 h-7 rounded-full border-2 transition-transform ${color === c ? 'border-primary scale-110' : 'border-gray-300 dark:border-gray-600'}`} style={{ backgroundColor: c }} />)}
                 <div className="w-8 border-t border-gray-300 dark:border-gray-600 my-2" />
                 <input type="range" min={1} max={10} value={thickness} onChange={e => setThickness(parseInt(e.target.value))} className="w-10 rotate-[-90deg] mt-4 mb-4" />
                 <div className="w-8 border-t border-gray-300 dark:border-gray-600 my-2" />
-                {!transparent && Object.entries(BG_STYLES).map(([id, bg]) => (
-                    <button key={id} onClick={() => setBackground(id)} className={`w-8 h-8 rounded border-2 transition-colors ${background === id ? 'border-primary' : 'border-gray-300 dark:border-gray-600'}`} style={{ background: id === 'white' ? '#fff' : id === 'grid' ? '#f0f0f0' : '#f5f0e8' }}>
+                {!transparent && isProf && Object.entries(BG_STYLES).map(([id, bg]) => (
+                    <button key={id} onClick={() => { setBackground(id); sendData({ type: 'background', bg: id }); }} className={`w-8 h-8 rounded border-2 transition-colors ${background === id ? 'border-primary' : 'border-gray-300 dark:border-gray-600'}`} style={{ background: id === 'white' ? '#fff' : id === 'grid' ? '#f0f0f0' : '#f5f0e8' }}>
                         {id === 'grid' && <Grid3X3 className="w-4 h-4 text-gray-400 mx-auto" />}
                     </button>
                 ))}
@@ -452,13 +469,13 @@ function Whiteboard({ localParticipant, locked, transparent }) {
 
             <div ref={wrapperRef} className="flex-1 relative overflow-hidden" style={backgroundStyle} onPointerLeave={() => setCursorPos(null)}>
                 {cursorPos && tool === 'eraser' && (
-                    <div className="fixed pointer-events-none rounded-full border border-black dark:border-white bg-white/50 z-50 transform -translate-x-1/2 -translate-y-1/2 shadow-sm" style={{ left: wrapperRef.current?.getBoundingClientRect().left + cursorPos.x, top: wrapperRef.current?.getBoundingClientRect().top + cursorPos.y, width: thickness * 5, height: thickness * 5 }} />
+                    <div className="fixed pointer-events-none rounded-full border-2 border-black bg-white/50 z-50 transform -translate-x-1/2 -translate-y-1/2 shadow-sm shadow-white" style={{ left: wrapperRef.current?.getBoundingClientRect().left + cursorPos.x, top: wrapperRef.current?.getBoundingClientRect().top + cursorPos.y, width: thickness * 5, height: thickness * 5 }} />
                 )}
                 <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10" style={{ cursor: tool === 'eraser' ? 'none' : 'crosshair' }} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={() => { setIsDrawing(false); setCursorPos(null); }} onTouchStart={handlePointerDown} onTouchMove={handlePointerMove} onTouchEnd={handlePointerUp} />
 
                 {textInput && (
-                    <textarea ref={textRef} autoFocus className="absolute z-50 bg-white/20 outline-none resize-none overflow-hidden"
-                        style={{ left: textInput.x, top: textInput.y, color: textInput.color, fontSize: `${textInput.thickness * 6}px`, fontFamily: 'Inter, sans-serif', minWidth: '20px', border: '1px dashed #666', lineHeight: 1.2 }}
+                    <textarea ref={textRef} autoFocus className="absolute z-50 bg-white/50 outline-none resize-none overflow-hidden"
+                        style={{ left: textInput.x, top: textInput.y, color: textInput.color, fontSize: `${textInput.thickness * 6}px`, fontFamily: 'Inter, sans-serif', minWidth: '20px', border: '1px dashed #000', lineHeight: 1.2 }}
                         onKeyDown={e => { if (e.key === 'Escape') setTextInput(null); }}
                         onChange={e => {
                             e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px';
