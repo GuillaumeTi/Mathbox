@@ -14,7 +14,7 @@ import {
     ArrowLeft, Video, VideoOff, Mic, MicOff, PenTool,
     Eraser, Type, Square, Circle, Minus, Triangle, Camera, Trash2,
     Lock, Unlock, MessageSquare, Send, X, Grid3X3,
-    Monitor, MonitorOff, ImagePlus,
+    Monitor, MonitorOff, ImagePlus, Cloud, Folder, ChevronRight, File, Paperclip, Download
 } from 'lucide-react';
 
 const COLORS = ['#000000', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6'];
@@ -138,12 +138,52 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
     const toggleVideo = async () => { await localParticipant?.setCameraEnabled(!videoEnabled); setVideoEnabled(!videoEnabled); };
     const toggleAudio = async () => { await localParticipant?.setMicrophoneEnabled(!audioEnabled); setAudioEnabled(!audioEnabled); };
 
+    const sendDataPacket = async (payload) => {
+        if (!room || !localParticipant) return;
+        try { await localParticipant.publishData(new TextEncoder().encode(JSON.stringify(payload)), DataPacket_Kind.RELIABLE); } catch (e) { console.error(e); }
+    };
+
     const sendChatMessage = async (text) => {
-        if (!text.trim() || !room || !localParticipant) return;
+        if (!text.trim()) return;
+        const msg = { type: 'chat', text, senderName: user.name };
+        await sendDataPacket(msg);
+        setMessages(prev => [...prev, { ...msg, time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }), isMe: true }]);
+    };
+
+    const sendFileMessage = async (fileData) => {
+        const msg = { type: 'file', ...fileData, senderName: user.name };
+        await sendDataPacket(msg);
+        setMessages(prev => [...prev, { ...msg, time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }), isMe: true }]);
+    };
+
+    const handleChatUpload = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
         try {
-            await localParticipant.publishData(new TextEncoder().encode(JSON.stringify({ type: 'chat', text, senderName: user.name })), DataPacket_Kind.RELIABLE);
-            setMessages(prev => [...prev, { sender: user.name, text, time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }), isMe: true }]);
-        } catch (e) { console.error('Chat failed:', e); }
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('courseId', courseId); // For structured path
+            formData.append('sessionId', sessionId);
+            formData.append('type', 'OTHER'); // Or generic
+            formData.append('source', 'chat_attachment');
+
+            const res = await api.upload('/documents/upload', formData);
+            const doc = res.document;
+
+            await sendFileMessage({
+                text: doc.title,
+                url: doc.url,
+                filename: doc.title,
+                size: doc.size,
+                mimeType: doc.mimeType
+            });
+
+        } catch (err) {
+            console.error('Chat upload failed:', err);
+            alert('Upload failed');
+        }
+        e.target.value = '';
     };
 
     useEffect(() => {
@@ -152,9 +192,12 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
             if (participant?.identity === localParticipant?.identity) return;
             try {
                 const data = JSON.parse(new TextDecoder().decode(payload));
+                const time = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+
                 if (data.type === 'mode') setViewMode(data.mode);
                 else if (data.type === 'lock') setLocked(data.locked);
-                else if (data.type === 'chat') setMessages(prev => [...prev, { sender: data.senderName, text: data.text, time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }), isMe: false }]);
+                else if (data.type === 'chat') setMessages(prev => [...prev, { sender: data.senderName, text: data.text, time, isMe: false }]);
+                else if (data.type === 'file') setMessages(prev => [...prev, { sender: data.senderName, text: data.filename, url: data.url, filename: data.filename, size: data.size, type: 'file', time, isMe: false }]);
             } catch (err) { console.error(err); }
         };
         room.on(RoomEvent.DataReceived, handleData);
@@ -176,7 +219,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
                 <div className="flex items-center gap-2">
                     {isProf && (
                         <>
-                            <Button variant={locked ? 'destructive' : 'ghost'} size="sm" onClick={async () => { const next = !locked; setLocked(next); if (localParticipant) await localParticipant.publishData(new TextEncoder().encode(JSON.stringify({ type: 'lock', locked: next })), DataPacket_Kind.RELIABLE); }}>{locked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}</Button>
+                            <Button variant={locked ? 'destructive' : 'ghost'} size="sm" onClick={async () => { const next = !locked; setLocked(next); await sendDataPacket({ type: 'lock', locked: next }); }}>{locked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}</Button>
                             <Button variant={viewMode === 'BOARD' ? 'default' : 'ghost'} size="sm" onClick={() => (viewMode === 'BOARD' ? broadcastMode('VIDEO') : broadcastMode('BOARD'))}><PenTool className="w-4 h-4 mr-1" /> Tableau</Button>
                             <Button variant={screenSharing ? 'default' : 'ghost'} size="sm" onClick={toggleScreenShare}>{screenSharing ? <><MonitorOff className="w-4 h-4 mr-1" /> Stop</> : <><Monitor className="w-4 h-4 mr-1" /> Écran</>}</Button>
                         </>
@@ -204,7 +247,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
                         </div>
                     </>
                 )}
-                {chatOpen && <ChatPanel messages={messages} onSendMessage={sendChatMessage} onClose={() => setChatOpen(false)} />}
+                {chatOpen && <ChatPanel messages={messages} onSendMessage={sendChatMessage} onClose={() => setChatOpen(false)} onFileUpload={handleChatUpload} />}
             </div>
             <div className="h-16 glass-strong border-t flex items-center justify-center gap-3 shrink-0">
                 <Button variant={videoEnabled ? 'secondary' : 'destructive'} size="icon" className="rounded-full w-12 h-12" onClick={toggleVideo}>{videoEnabled ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}</Button>
@@ -218,7 +261,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
 function Whiteboard({ localParticipant, locked, transparent, isProf }) {
     const room = useRoomContext();
     const canvasRef = useRef(null);
-    const previewCanvasRef = useRef(null); // New Preview Canvas
+    const previewCanvasRef = useRef(null);
     const wrapperRef = useRef(null);
     const [tool, setTool] = useState('pen');
     const [color, setColor] = useState(COLORS[3]);
@@ -233,26 +276,22 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
     const imageInputRef = useRef(null);
     const [cursorPos, setCursorPos] = useState(null);
 
-    // Initial resize
+    // Cloud UI State
+    const [showSourceModal, setShowSourceModal] = useState(false);
+    const [showCloudPicker, setShowCloudPicker] = useState(false);
+
+    // Initial resize (unchanged)
     useEffect(() => {
         const handleResize = () => {
-            // Main Canvas
             const canvas = canvasRef.current;
             const preview = previewCanvasRef.current;
             if (!canvas || !preview || !wrapperRef.current) return;
-
             const rect = wrapperRef.current.getBoundingClientRect();
-
-            // Save content
             const tmpCanvas = document.createElement('canvas');
             tmpCanvas.width = canvas.width; tmpCanvas.height = canvas.height;
             tmpCanvas.getContext('2d').drawImage(canvas, 0, 0);
-
-            // Resize both
             canvas.width = rect.width; canvas.height = rect.height;
             preview.width = rect.width; preview.height = rect.height;
-
-            // Restore main content
             canvas.getContext('2d').drawImage(tmpCanvas, 0, 0);
         };
         handleResize();
@@ -265,25 +304,13 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
         try { await localParticipant.publishData(new TextEncoder().encode(JSON.stringify(payload)), DataPacket_Kind.RELIABLE); } catch (e) { console.error('WS send failed', e); }
     };
 
+    // Draw logic (includes Triangle from Phase 11)
     const drawShape = (ctx, type, x1, y1, x2, y2, color, thickness) => {
-        ctx.beginPath();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = thickness;
-
-        if (type === 'line') {
-            ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
-        } else if (type === 'rect') {
-            ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-            return; // strokeRect draws directly
-        } else if (type === 'circle') {
-            const rx = (x2 - x1) / 2; const ry = (y2 - y1) / 2;
-            ctx.ellipse(x1 + rx, y1 + ry, Math.abs(rx), Math.abs(ry), 0, 0, Math.PI * 2);
-        } else if (type === 'triangle') {
-            ctx.moveTo(x1 + (x2 - x1) / 2, y1); // Top center
-            ctx.lineTo(x1, y2); // Bottom left
-            ctx.lineTo(x2, y2); // Bottom right
-            ctx.closePath();
-        }
+        ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = thickness;
+        if (type === 'line') { ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); }
+        else if (type === 'rect') { ctx.strokeRect(x1, y1, x2 - x1, y2 - y1); return; }
+        else if (type === 'circle') { const rx = (x2 - x1) / 2; const ry = (y2 - y1) / 2; ctx.ellipse(x1 + rx, y1 + ry, Math.abs(rx), Math.abs(ry), 0, 0, Math.PI * 2); }
+        else if (type === 'triangle') { ctx.moveTo(x1 + (x2 - x1) / 2, y1); ctx.lineTo(x1, y2); ctx.lineTo(x2, y2); ctx.closePath(); }
         ctx.stroke();
     };
 
@@ -292,19 +319,10 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
         ctx.save();
-        if (data.tool === 'pen') {
-            ctx.globalCompositeOperation = 'source-over'; ctx.beginPath(); ctx.strokeStyle = data.color; ctx.lineWidth = data.thickness; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.moveTo(data.x1, data.y1); ctx.lineTo(data.x2, data.y2); ctx.stroke();
-        } else if (data.tool === 'eraser') {
-            ctx.globalCompositeOperation = 'destination-out'; ctx.beginPath(); ctx.lineWidth = data.thickness; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.moveTo(data.x1, data.y1); ctx.lineTo(data.x2, data.y2); ctx.stroke();
-        } else if (['line', 'rect', 'circle', 'triangle'].includes(data.tool)) {
-            ctx.globalCompositeOperation = 'source-over';
-            drawShape(ctx, data.tool, data.x1, data.y1, data.x2, data.y2, data.color, data.thickness);
-        } else if (data.tool === 'text') {
-            ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = data.color; ctx.font = `${data.thickness * 6}px Inter, sans-serif`;
-            const lines = data.text.split('\n');
-            const lineHeight = data.thickness * 6 * 1.2;
-            lines.forEach((line, i) => { ctx.fillText(line, data.x1, data.y1 + (i * lineHeight) + (data.thickness * 6)); });
-        }
+        if (data.tool === 'pen') { ctx.globalCompositeOperation = 'source-over'; ctx.beginPath(); ctx.strokeStyle = data.color; ctx.lineWidth = data.thickness; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.moveTo(data.x1, data.y1); ctx.lineTo(data.x2, data.y2); ctx.stroke(); }
+        else if (data.tool === 'eraser') { ctx.globalCompositeOperation = 'destination-out'; ctx.beginPath(); ctx.lineWidth = data.thickness; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.moveTo(data.x1, data.y1); ctx.lineTo(data.x2, data.y2); ctx.stroke(); }
+        else if (['line', 'rect', 'circle', 'triangle'].includes(data.tool)) { ctx.globalCompositeOperation = 'source-over'; drawShape(ctx, data.tool, data.x1, data.y1, data.x2, data.y2, data.color, data.thickness); }
+        else if (data.tool === 'text') { ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = data.color; ctx.font = `${data.thickness * 6}px Inter, sans-serif`; const lines = data.text.split('\n'); const lineHeight = data.thickness * 6 * 1.2; lines.forEach((line, i) => { ctx.fillText(line, data.x1, data.y1 + (i * lineHeight) + (data.thickness * 6)); }); }
         ctx.restore();
     };
 
@@ -329,55 +347,36 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
         return () => room.off(RoomEvent.DataReceived, handler);
     }, [room, localParticipant]);
 
-    const getPos = (e) => {
-        const rect = canvasRef.current.getBoundingClientRect();
-        return { x: (e.touches ? e.touches[0].clientX : e.clientX) - rect.left, y: (e.touches ? e.touches[0].clientY : e.clientY) - rect.top };
-    };
+    const getPos = (e) => { const rect = canvasRef.current.getBoundingClientRect(); return { x: (e.touches ? e.touches[0].clientX : e.clientX) - rect.left, y: (e.touches ? e.touches[0].clientY : e.clientY) - rect.top }; };
 
-    useEffect(() => {
-        if (textInput && textRef.current) {
-            console.log('[Room] Auto-focusing new textarea (delayed)');
-            const timer = setTimeout(() => {
-                if (textRef.current) {
-                    textRef.current.focus();
-                }
-            }, 10);
-            return () => clearTimeout(timer);
-        }
-    }, [textInput]);
+    // Text focus fix
+    useEffect(() => { if (textInput && textRef.current) setTimeout(() => textRef.current?.focus(), 10); }, [textInput]);
 
     const onPointerDown = (e) => {
-        console.log('[Room] PointerDown', tool, e.clientX, e.clientY);
         if (locked) return;
         const pos = getPos(e);
         updateCursor(e);
 
         if (textInput && tool !== 'text') {
             const val = textRef.current?.value;
-            if (val) {
-                const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val };
-                applyDrawing(drawData); sendData(drawData);
-            }
+            if (val) { const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val }; applyDrawing(drawData); sendData(drawData); }
             setTextInput(null);
         }
 
         if (tool === 'text') {
-            console.log('[Room] Text tool click at', pos);
             e.preventDefault();
             if (textInput) {
-                console.log('[Room] Committing previous text');
                 const val = textRef.current?.value;
-                if (val && val.trim()) {
-                    const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val };
-                    applyDrawing(drawData); sendData(drawData);
-                }
+                if (val && val.trim()) { const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val }; applyDrawing(drawData); sendData(drawData); }
             }
-            console.log('[Room] Starting new text');
             setTextInput({ x: pos.x, y: pos.y, color, thickness });
             return;
         }
 
-        if (tool === 'image') { if (isProf) imageInputRef.current?.click(); return; }
+        if (tool === 'image') {
+            if (isProf) setShowSourceModal(true); // Open modal instead of click
+            return;
+        }
 
         setIsDrawing(true);
         lastPoint.current = pos;
@@ -393,10 +392,8 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
             applyDrawing(drawData); sendData(drawData);
             lastPoint.current = pos;
         } else if (['line', 'rect', 'circle', 'triangle'].includes(tool) && shapeStartRef.current) {
-            // Real-time Preview
             clearPreview();
-            const ctx = previewCanvasRef.current.getContext('2d');
-            drawShape(ctx, tool, shapeStartRef.current.x, shapeStartRef.current.y, pos.x, pos.y, color, thickness);
+            drawShape(previewCanvasRef.current.getContext('2d'), tool, shapeStartRef.current.x, shapeStartRef.current.y, pos.x, pos.y, color, thickness);
         }
     };
 
@@ -405,7 +402,7 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
         setIsDrawing(false);
         const pos = getPos(e.changedTouches ? e.changedTouches[0] : e);
         if (['line', 'rect', 'circle', 'triangle'].includes(tool) && shapeStartRef.current) {
-            clearPreview(); // Clear preview before drawing final
+            clearPreview();
             const drawData = { type: 'draw', tool, x1: shapeStartRef.current.x, y1: shapeStartRef.current.y, x2: pos.x, y2: pos.y, color, thickness };
             applyDrawing(drawData); sendData(drawData);
             shapeStartRef.current = null;
@@ -413,35 +410,44 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
     };
 
     const updateCursor = (e) => {
-        if (tool === 'eraser') {
-            const rect = wrapperRef.current?.getBoundingClientRect();
-            if (rect) setCursorPos({ x: (e.touches ? e.touches[0].clientX : e.clientX) - rect.left, y: (e.touches ? e.touches[0].clientY : e.clientY) - rect.top });
-        } else { setCursorPos(null); }
+        if (tool === 'eraser') { const rect = wrapperRef.current?.getBoundingClientRect(); if (rect) setCursorPos({ x: (e.touches ? e.touches[0].clientX : e.clientX) - rect.left, y: (e.touches ? e.touches[0].clientY : e.clientY) - rect.top }); } else { setCursorPos(null); }
     };
 
     const activeBgInfo = BG_STYLES[background] || BG_STYLES.white;
     const bgStyle = transparent ? { backgroundColor: 'transparent' } : activeBgInfo.style;
 
+    const handleCloudImageSelect = (file) => {
+        const img = new Image();
+        img.onload = () => {
+            const w = Math.min(img.width, 400); const h = img.height * (w / img.width);
+            const x = (canvasRef.current.width - w) / 2; const y = (canvasRef.current.height - h) / 2;
+            canvasRef.current.getContext('2d').drawImage(img, x, y, w, h);
+            sendData({ type: 'image', src: file.url, x, y, w, h });
+        };
+        img.src = file.url;
+        setShowCloudPicker(false);
+    };
+
     return (
         <div className="h-full flex">
+            {/* Toolbar */}
             <div className="w-14 bg-gray-100 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col items-center py-3 gap-1 shrink-0 z-20">
                 {TOOLS.map(t => {
                     if (t.id === 'image' && !isProf) return null;
                     return (
-                        <button key={t.id} onClick={() => { setTool(t.id); if (t.id === 'image') imageInputRef.current?.click(); }} className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${tool === t.id ? 'bg-primary text-white shadow' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800'}`}>
+                        <button key={t.id} onClick={() => { setTool(t.id); if (t.id === 'image') setShowSourceModal(true); }} className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${tool === t.id ? 'bg-primary text-white shadow' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800'}`}>
                             <t.icon className="w-5 h-5" />
                         </button>
                     );
                 })}
+                {/* ... colors/thickness/bg/clear ... */}
                 <div className="w-8 border-t border-gray-300 dark:border-gray-600 my-2" />
                 {COLORS.map(c => <button key={c} onClick={() => setColor(c)} className={`w-7 h-7 rounded-full border-2 transition-transform ${color === c ? 'border-primary scale-110' : 'border-gray-300 dark:border-gray-600'}`} style={{ backgroundColor: c }} />)}
                 <div className="w-8 border-t border-gray-300 dark:border-gray-600 my-2" />
                 <input type="range" min={1} max={10} value={thickness} onChange={e => setThickness(parseInt(e.target.value))} className="w-10 rotate-[-90deg] mt-4 mb-4" />
                 <div className="w-8 border-t border-gray-300 dark:border-gray-600 my-2" />
                 {!transparent && isProf && Object.entries(BG_STYLES).map(([id, bg]) => (
-                    <button key={id} onClick={() => { setBackground(id); sendData({ type: 'background', bg: id }); }} className={`w-8 h-8 rounded border-2 transition-colors ${background === id ? 'border-primary' : 'border-gray-300 dark:border-gray-600'}`} style={{ background: id === 'white' ? '#fff' : id === 'grid' ? '#f0f0f0' : '#f5f0e8' }}>
-                        {id === 'grid' && <Grid3X3 className="w-4 h-4 text-gray-400 mx-auto" />}
-                    </button>
+                    <button key={id} onClick={() => { setBackground(id); sendData({ type: 'background', bg: id }); }} className={`w-8 h-8 rounded border-2 transition-colors ${background === id ? 'border-primary' : 'border-gray-300 dark:border-gray-600'}`} style={{ background: id === 'white' ? '#fff' : id === 'grid' ? '#f0f0f0' : '#f5f0e8' }}>{id === 'grid' && <Grid3X3 className="w-4 h-4 text-gray-400 mx-auto" />}</button>
                 ))}
                 <div className="mt-auto" />
                 <button onClick={() => { if (confirm('Tout effacer ?')) { clearCanvas(); clearPreview(); sendData({ type: 'clear' }); } }} className="w-10 h-10 rounded-lg text-red-500 hover:bg-red-100 flex items-center justify-center"><Trash2 className="w-5 h-5" /></button>
@@ -452,77 +458,150 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
                     <div className="fixed pointer-events-none rounded-full border-2 border-black bg-white/50 z-50 transform -translate-x-1/2 -translate-y-1/2 shadow-sm shadow-white" style={{ left: wrapperRef.current?.getBoundingClientRect().left + cursorPos.x, top: wrapperRef.current?.getBoundingClientRect().top + cursorPos.y, width: thickness * 5, height: thickness * 5 }} />
                 )}
 
-                <canvas
-                    ref={canvasRef}
-                    className="absolute inset-0 w-full h-full z-10"
-                    style={{ cursor: tool === 'eraser' ? 'none' : 'crosshair' }}
-                    onPointerDown={onPointerDown}
-                    onPointerMove={onPointerMove}
-                    onPointerUp={onPointerUp}
-                    onPointerLeave={() => { setIsDrawing(false); setCursorPos(null); }}
-                />
-
-                {/* Preview Canvas - High z-index, pointer events none so simple pass-through */}
-                <canvas
-                    ref={previewCanvasRef}
-                    className="absolute inset-0 w-full h-full z-20 pointer-events-none"
-                />
+                <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10" style={{ cursor: tool === 'eraser' ? 'none' : 'crosshair' }} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={() => { setIsDrawing(false); setCursorPos(null); }} />
+                <canvas ref={previewCanvasRef} className="absolute inset-0 w-full h-full z-20 pointer-events-none" />
 
                 {textInput && (
-                    <textarea
-                        key={`${textInput.x}-${textInput.y}`}
-                        ref={textRef}
-                        className="absolute z-50 bg-white/50 outline-none resize-none overflow-hidden"
-                        style={{
-                            left: textInput.x,
-                            top: textInput.y,
-                            color: textInput.color,
-                            fontSize: `${textInput.thickness * 6}px`,
-                            fontFamily: 'Inter, sans-serif',
-                            minWidth: '20px',
-                            lineHeight: 1.2,
-                            border: '1px dashed #666'
-                        }}
-                        autoFocus
-                        onKeyDown={e => {
-                            if (e.key === 'Escape') setTextInput(null);
-                            e.stopPropagation();
-                        }}
-                        onPointerDown={e => e.stopPropagation()}
-                        onChange={e => {
-                            e.target.style.height = 'auto';
-                            e.target.style.height = e.target.scrollHeight + 'px';
-                            sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: e.target.value, color: textInput.color, thickness: textInput.thickness });
-                        }}
-                        onBlur={e => {
-                            console.log('[Room] Blur', e.relatedTarget);
-                            if (e.target.value.trim()) {
-                                const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: e.target.value };
-                                applyDrawing(drawData); sendData(drawData);
-                            }
-                            setTextInput(null);
-                        }}
+                    <textarea key={`${textInput.x}-${textInput.y}`} ref={textRef} className="absolute z-50 bg-white/50 outline-none resize-none overflow-hidden" style={{ left: textInput.x, top: textInput.y, color: textInput.color, fontSize: `${textInput.thickness * 6}px`, fontFamily: 'Inter, sans-serif', minWidth: '20px', lineHeight: 1.2, border: '1px dashed #666' }}
+                        autoFocus onKeyDown={e => { if (e.key === 'Escape') setTextInput(null); e.stopPropagation(); }} onPointerDown={e => e.stopPropagation()}
+                        onChange={e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: e.target.value, color: textInput.color, thickness: textInput.thickness }); }}
+                        onBlur={e => { if (e.target.value.trim()) { const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: e.target.value }; applyDrawing(drawData); sendData(drawData); } setTextInput(null); }}
                     />
                 )}
 
                 {remoteText && <span className="absolute pointer-events-none z-30 whitespace-pre" style={{ left: remoteText.x, top: remoteText.y, color: remoteText.color, fontSize: `${remoteText.size}px`, fontFamily: 'Inter, sans-serif', lineHeight: 1.2, textShadow: '0 0 2px white' }}>{remoteText.text}</span>}
                 <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => { const img = new Image(); img.onload = () => { const w = Math.min(img.width, 400); const h = img.height * (w / img.width); const x = (canvasRef.current.width - w) / 2; const y = (canvasRef.current.height - h) / 2; canvasRef.current.getContext('2d').drawImage(img, x, y, w, h); sendData({ type: 'image', src: ev.target.result, x, y, w, h }); }; img.src = ev.target.result; }; reader.readAsDataURL(file); e.target.value = ''; }} />
             </div>
+
+            {/* Modals */}
+            {showSourceModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+                    <div className="bg-background rounded-xl border p-6 w-80 shadow-2xl space-y-4">
+                        <h3 className="text-lg font-semibold">Choisir une image</h3>
+                        <div className="grid gap-3">
+                            <Button variant="outline" className="justify-start h-12" onClick={() => { setShowSourceModal(false); imageInputRef.current?.click(); }}>
+                                <ImagePlus className="w-5 h-5 mr-3 text-blue-500" /> Depuis l'appareil
+                            </Button>
+                            <Button variant="outline" className="justify-start h-12" onClick={() => { setShowSourceModal(false); setShowCloudPicker(true); }}>
+                                <Cloud className="w-5 h-5 mr-3 text-pink-500" /> Depuis mon Cloud
+                            </Button>
+                        </div>
+                        <Button variant="ghost" className="w-full" onClick={() => setShowSourceModal(false)}>Annuler</Button>
+                    </div>
+                </div>
+            )}
+
+            {showCloudPicker && <CloudFilePicker onClose={() => setShowCloudPicker(false)} onSelect={handleCloudImageSelect} />}
         </div>
     );
 }
 
-function ChatPanel({ messages, onSendMessage, onClose }) {
+// Minimal Cloud Picker Component
+function CloudFilePicker({ onClose, onSelect }) {
+    const [folders, setFolders] = useState([]);
+    const [documents, setDocuments] = useState([]);
+    const [currentFolder, setCurrentFolder] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetch = async () => {
+            try {
+                setLoading(true);
+                const query = currentFolder ? `?folderId=${currentFolder.id}` : '';
+                const [fRes, dRes] = await Promise.all([
+                    api.get(`/folders${currentFolder ? `?parentId=${currentFolder.id}` : ''}`),
+                    api.get(`/documents${query}`) // Could filter by type=image in backend but api is generic
+                ]);
+                setFolders(fRes.folders || []);
+                setDocuments((dRes.documents || []).filter(d => d.mimeType.startsWith('image/'))); // Filter images only
+            } catch (e) { } finally { setLoading(false); }
+        };
+        fetch();
+    }, [currentFolder]);
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="bg-background rounded-xl border p-0 w-[600px] h-[500px] shadow-2xl flex flex-col overflow-hidden">
+                <div className="p-4 border-b flex items-center justify-between bg-secondary/20">
+                    <div className="flex items-center gap-2 font-medium">
+                        <button onClick={() => setCurrentFolder(null)} className="hover:underline text-primary">Cloud</button>
+                        {currentFolder && <><ChevronRight className="w-4 h-4 text-muted-foreground" /> <span>{currentFolder.name}</span></>}
+                    </div>
+                    <button onClick={onClose}><X className="w-5 h-5" /></button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4">
+                    {loading ? <div className="text-center p-8 text-muted-foreground">Chargement...</div> : (
+                        <div className="grid grid-cols-4 gap-4">
+                            {folders.map(f => (
+                                <button key={f.id} onClick={() => setCurrentFolder(f)} className="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-secondary/40 border border-transparent hover:border-border transition-colors group">
+                                    <Folder className="w-10 h-10 text-amber-400 fill-amber-400/20" />
+                                    <span className="text-xs text-center truncate w-full">{f.name}</span>
+                                </button>
+                            ))}
+                            {documents.map(d => (
+                                <button key={d.id} onClick={() => onSelect(d)} className="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-secondary/40 border border-transparent hover:border-border transition-colors relative group">
+                                    <div className="w-12 h-12 rounded bg-gray-100 dark:bg-gray-800 flex items-center justify-center overflow-hidden">
+                                        <img src={d.url} alt="" className="w-full h-full object-cover" />
+                                    </div>
+                                    <span className="text-xs text-center truncate w-full">{d.title}</span>
+                                </button>
+                            ))}
+                            {folders.length === 0 && documents.length === 0 && <div className="col-span-4 text-center text-muted-foreground py-8">Aucune image trouvée</div>}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function ChatPanel({ messages, onSendMessage, onClose, onFileUpload }) {
     const [input, setInput] = useState('');
     const messagesEndRef = useRef(null);
+    const fileInputRef = useRef(null);
     useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
     const handleSubmit = (e) => { e.preventDefault(); onSendMessage(input); setInput(''); };
+
+    const formatSize = (bytes) => {
+        if (!bytes) return '';
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    };
 
     return (
         <div className="w-80 border-l border-border flex flex-col bg-background shrink-0">
             <div className="h-10 px-4 flex items-center justify-between border-b"><span className="text-sm font-medium">Chat</span><button onClick={onClose}><X className="w-4 h-4" /></button></div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">{messages.map((msg, i) => (<div key={i} className={`flex flex-col ${msg.isMe ? 'items-end' : 'items-start'}`}><span className="text-[10px] text-muted-foreground mb-0.5">{msg.sender} • {msg.time}</span><div className={`px-3 py-2 rounded-lg text-sm max-w-[85%] ${msg.isMe ? 'bg-primary text-white' : 'bg-secondary'}`}>{msg.text}</div></div>))}<div ref={messagesEndRef} /></div>
-            <form onSubmit={handleSubmit} className="p-3 border-t flex gap-2"><input value={input} onChange={e => setInput(e.target.value)} placeholder="Message..." className="flex-1 h-9 rounded-lg bg-secondary/50 border border-input px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary" /><Button type="submit" size="icon" className="h-9 w-9 shrink-0"><Send className="w-4 h-4" /></Button></form>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {messages.map((msg, i) => (
+                    <div key={i} className={`flex flex-col ${msg.isMe ? 'items-end' : 'items-start'}`}>
+                        <span className="text-[10px] text-muted-foreground mb-0.5">{msg.sender} • {msg.time}</span>
+                        {msg.type === 'file' ? (
+                            <a href={msg.url} target="_blank" rel="noopener noreferrer" className={`flex items-center gap-3 p-3 rounded-lg max-w-[95%] border ${msg.isMe ? 'bg-primary/10 border-primary/20' : 'bg-secondary border-border'} hover:bg-opacity-80 transition-colors`}>
+                                <div className="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
+                                    <File className="w-5 h-5 text-current" />
+                                </div>
+                                <div className="min-w-0">
+                                    <p className="text-sm font-medium truncate">{msg.filename}</p>
+                                    <p className="text-[10px] opacity-70">{formatSize(msg.size)}</p>
+                                </div>
+                                <Download className="w-4 h-4 ml-2 opacity-50" />
+                            </a>
+                        ) : (
+                            <div className={`px-3 py-2 rounded-lg text-sm max-w-[85%] ${msg.isMe ? 'bg-primary text-white' : 'bg-secondary'}`}>{msg.text}</div>
+                        )}
+                    </div>
+                ))}
+                <div ref={messagesEndRef} />
+            </div>
+            <form onSubmit={handleSubmit} className="p-3 border-t flex gap-2 items-center">
+                <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2 text-muted-foreground hover:text-foreground transition-colors hover:bg-secondary rounded-lg">
+                    <Paperclip className="w-4 h-4" />
+                </button>
+                <input ref={fileInputRef} type="file" className="hidden" onChange={onFileUpload} />
+                <input value={input} onChange={e => setInput(e.target.value)} placeholder="Message..." className="flex-1 h-9 rounded-lg bg-secondary/50 border border-input px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary" />
+                <Button type="submit" size="icon" className="h-9 w-9 shrink-0"><Send className="w-4 h-4" /></Button>
+            </form>
         </div>
     );
 }
@@ -532,11 +611,8 @@ function ScreenshotButton({ sessionId, courseId }) {
     const [showModal, setShowModal] = useState(false);
     const [captureName, setCaptureName] = useState('');
     const capturedDataRef = useRef(null);
-
     const takeScreenshot = () => { const canvas = document.querySelector('canvas'); if (!canvas) return; capturedDataRef.current = canvas.toDataURL('image/png'); const now = new Date(); setCaptureName(`Capture ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`); setShowModal(true); };
-
     const confirmSave = async () => { if (!capturedDataRef.current) return; setSaving(true); try { await api.post('/room/screenshot', { imageData: capturedDataRef.current, sessionId, courseId, name: captureName }); } catch (err) { console.error('Screenshot failed:', err); } setSaving(false); setShowModal(false); };
-
     return (
         <>
             <Button variant="ghost" size="sm" onClick={takeScreenshot} disabled={saving}><Camera className="w-4 h-4 mr-1" /> {saving ? '...' : '📸'}</Button>

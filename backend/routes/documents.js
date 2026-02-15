@@ -29,11 +29,33 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
             return res.status(400).json({ error: 'No file uploaded' });
         }
 
-        const { courseId, sessionId, folderId, type } = req.body;
+        const { courseId, sessionId, folderId, type, source } = req.body;
         const timestamp = Date.now();
         const ext = path.extname(req.file.originalname);
         const safeName = `${timestamp}_${req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-        const targetPath = `${req.user.id}/${courseId || 'general'}/${safeName}`;
+
+        let targetPath;
+
+        if (courseId) {
+            // Fetch course to get studentId and Title
+            const course = await prisma.course.findUnique({
+                where: { id: courseId },
+                include: { student: true }
+            });
+
+            if (course) {
+                const dateStr = new Date().toISOString().split('T')[0];
+                // Path: /bucket/{student_id}/{YYYY-MM-DD - Course_Name}/{filename}
+                const folderName = `${dateStr} - ${course.title.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+                targetPath = `${course.studentId}/${folderName}/${safeName}`;
+            } else {
+                // Fallback if course not found (shouldn't happen with valid ID)
+                targetPath = `${req.user.id}/${courseId}/${safeName}`;
+            }
+        } else {
+            // General upload (My Cloud, etc)
+            targetPath = `${req.user.id}/${folderId || 'root'}/${safeName}`;
+        }
 
         const result = await uploadFile(req.file.buffer, targetPath, req.file.mimetype);
 
