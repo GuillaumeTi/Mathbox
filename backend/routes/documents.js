@@ -142,30 +142,47 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
 router.get('/', authMiddleware, async (req, res) => {
     try {
         const { courseId, sessionId, folderId, type } = req.query;
-        const where = { ownerId: req.user.id };
 
-        if (courseId) where.courseId = courseId;
-        if (sessionId) where.sessionId = sessionId;
-        if (folderId) where.folderId = folderId;
-        if (type) where.type = type;
+        // 1. Access Control (User must be Owner OR Student/Prof of the course)
+        const accessCondition = {
+            OR: [
+                { ownerId: req.user.id },
+                {
+                    course: {
+                        OR: [
+                            { professorId: req.user.id },
+                            { studentId: req.user.id },
+                        ],
+                    },
+                },
+            ],
+        };
 
-        // Also include documents in courses the user is part of
+        // 2. Filters
+        const filters = [];
+
+        if (folderId) {
+            filters.push({ folderId });
+        } else {
+            // If no folderId provided, we generally want Root items (folderId: null)
+            // BUT, for "Private" virtual root, we want ownerId=me, courseId=null, folderId=null
+            // This existing route mixes everything.
+            // Let's strictly filter by folderId if passed. 
+            // If NOT passed, default to folderId: null to prevent flattening the entire drive.
+            // Exception: If searching? No search param yet.
+            filters.push({ folderId: null });
+        }
+
+        if (courseId) filters.push({ courseId });
+        if (sessionId) filters.push({ sessionId });
+        if (type) filters.push({ type });
+
         const documents = await prisma.document.findMany({
             where: {
-                OR: [
-                    where,
-                    {
-                        course: {
-                            OR: [
-                                { professorId: req.user.id },
-                                { studentId: req.user.id },
-                            ],
-                        },
-                        ...(courseId && { courseId }),
-                        ...(sessionId && { sessionId }),
-                        ...(type && { type }),
-                    },
-                ],
+                AND: [
+                    accessCondition,
+                    ...filters
+                ]
             },
             orderBy: { createdAt: 'desc' },
             include: {

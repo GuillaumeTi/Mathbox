@@ -33,7 +33,23 @@ export default function Cloud() {
 
     const fetchDocuments = async () => {
         try {
-            const params = currentFolder ? `?folderId=${currentFolder.id}` : '';
+            // Virtual Folders Logic
+            if (!currentFolder || currentFolder.id === 'students' || currentFolder.id.startsWith('virtual_')) {
+                setDocuments([]);
+                return;
+            }
+
+            let params = '';
+            if (currentFolder.id === 'private') {
+                // Private mapped to Root of documents (no folderId)
+                // But backend defaults 'undefined' folderId to null.
+                // So we can pass nothing or explicit null?
+                // Let's pass nothing to match backend default logic for root items.
+                params = ''; // implies folderId: null in backend
+            } else {
+                params = `?folderId=${currentFolder.id}`;
+            }
+
             const data = await api.get(`/documents${params}`);
             setDocuments(data.documents || []);
         } catch (err) { }

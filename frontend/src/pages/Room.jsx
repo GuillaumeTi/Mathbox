@@ -507,13 +507,25 @@ function CloudFilePicker({ onClose, onSelect }) {
         const fetch = async () => {
             try {
                 setLoading(true);
-                const query = currentFolder ? `?folderId=${currentFolder.id}` : '';
-                const [fRes, dRes] = await Promise.all([
-                    api.get(`/folders${currentFolder ? `?parentId=${currentFolder.id}` : ''}`),
-                    api.get(`/documents${query}`) // Could filter by type=image in backend but api is generic
-                ]);
+
+                // Fetch Folders
+                const fQuery = currentFolder ? `?parentId=${currentFolder.id}` : '';
+                const fRes = await api.get(`/folders${fQuery}`);
                 setFolders(fRes.folders || []);
-                setDocuments((dRes.documents || []).filter(d => d.mimeType.startsWith('image/'))); // Filter images only
+
+                // Fetch Documents (Skip for virtual roots)
+                if (!currentFolder || currentFolder.id === 'students' || currentFolder.id.startsWith('virtual_')) {
+                    setDocuments([]);
+                } else {
+                    let dQuery = '';
+                    if (currentFolder.id === 'private') {
+                        dQuery = '';
+                    } else {
+                        dQuery = `?folderId=${currentFolder.id}`;
+                    }
+                    const dRes = await api.get(`/documents${dQuery}`);
+                    setDocuments((dRes.documents || []).filter(d => d.mimeType.startsWith('image/')));
+                }
             } catch (e) { } finally { setLoading(false); }
         };
         fetch();
