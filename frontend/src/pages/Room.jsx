@@ -305,11 +305,16 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
         return { x: (e.touches ? e.touches[0].clientX : e.clientX) - rect.left, y: (e.touches ? e.touches[0].clientY : e.clientY) - rect.top };
     };
 
-    // Correctly structured useEffect for focus
+    // Correctly structured useEffect for focus with safer timeout
     useEffect(() => {
         if (textInput && textRef.current) {
-            console.log('[Room] Auto-focusing new textarea');
-            textRef.current.focus();
+            console.log('[Room] Auto-focusing new textarea (delayed)');
+            const timer = setTimeout(() => {
+                if (textRef.current) {
+                    textRef.current.focus();
+                }
+            }, 10);
+            return () => clearTimeout(timer);
         }
     }, [textInput]);
 
@@ -330,6 +335,9 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
 
         if (tool === 'text') {
             console.log('[Room] Text tool click at', pos);
+            // VITAL: Prevent default behavior to stop browser from stealing focus back to body/canvas immediately
+            e.preventDefault();
+
             if (textInput) {
                 // Determine if we are clicking INSIDE the existing text input?
                 // Actually the Textarea stops propagation of click usually, so if we are here, we clicked OUTSIDE.
@@ -343,8 +351,6 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
             // Start new text
             console.log('[Room] Starting new text');
             setTextInput({ x: pos.x, y: pos.y, color, thickness });
-
-            // NOTE: Focus is handled by useEffect now
             return;
         }
 
@@ -455,7 +461,7 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
                             sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: e.target.value, color: textInput.color, thickness: textInput.thickness });
                         }}
                         onBlur={e => {
-                            console.log('[Room] Blur');
+                            console.log('[Room] Blur', e.relatedTarget);
                             if (e.target.value.trim()) {
                                 const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: e.target.value };
                                 applyDrawing(drawData); sendData(drawData);
