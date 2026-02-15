@@ -306,6 +306,7 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
     };
 
     const onPointerDown = (e) => {
+        console.log('[Room] PointerDown', tool, e.clientX, e.clientY);
         if (locked) return;
         const pos = getPos(e);
         updateCursor(e);
@@ -320,9 +321,11 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
         }
 
         if (tool === 'text') {
+            console.log('[Room] Text tool click at', pos);
             if (textInput) {
                 // Determine if we are clicking INSIDE the existing text input?
                 // Actually the Textarea stops propagation of click usually, so if we are here, we clicked OUTSIDE.
+                console.log('[Room] Committing previous text');
                 const val = textRef.current?.value;
                 if (val && val.trim()) {
                     const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val };
@@ -330,12 +333,18 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
                 }
             }
             // Start new text
+            console.log('[Room] Starting new text');
             setTextInput({ x: pos.x, y: pos.y, color, thickness });
 
             // Force focus
             setTimeout(() => {
                 const el = textRef.current;
-                if (el) el.focus();
+                if (el) {
+                    console.log('[Room] Focusing');
+                    el.focus();
+                } else {
+                    console.warn('[Room] Textarea ref missing');
+                }
             }, 50);
             return;
         }
@@ -424,7 +433,7 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
                     <textarea
                         key={`${textInput.x}-${textInput.y}`}
                         ref={textRef}
-                        className="absolute z-50 bg-transparent outline-none resize-none overflow-hidden"
+                        className="absolute z-50 bg-white/50 outline-none resize-none overflow-hidden"
                         style={{
                             left: textInput.x,
                             top: textInput.y,
@@ -432,7 +441,8 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
                             fontSize: `${textInput.thickness * 6}px`,
                             fontFamily: 'Inter, sans-serif',
                             minWidth: '20px',
-                            lineHeight: 1.2
+                            lineHeight: 1.2,
+                            border: '1px dashed #666'
                         }}
                         autoFocus
                         onKeyDown={e => {
@@ -446,6 +456,7 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
                             sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: e.target.value, color: textInput.color, thickness: textInput.thickness });
                         }}
                         onBlur={e => {
+                            console.log('[Room] Blur');
                             if (e.target.value.trim()) {
                                 const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: e.target.value };
                                 applyDrawing(drawData); sendData(drawData);
