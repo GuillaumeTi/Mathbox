@@ -167,6 +167,9 @@ model Folder {
   parent   Folder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
   children Folder[] @relation("FolderTree")
 
+  courseId String?
+  course   Course? @relation(fields: [courseId], references: [id], onDelete: SetNull)
+
   sessionId String?  @unique
   session   Session? @relation("SessionFolder", fields: [sessionId], references: [id], onDelete: SetNull)
 
