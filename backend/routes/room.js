@@ -155,7 +155,7 @@ router.get('/status', authMiddleware, async (req, res) => {
 // POST /api/room/screenshot - Save a whiteboard screenshot
 router.post('/screenshot', authMiddleware, async (req, res) => {
     try {
-        const { imageData, sessionId, courseId } = req.body;
+        const { imageData, sessionId, courseId, name } = req.body;
 
         if (!imageData || !sessionId) {
             return res.status(400).json({ error: 'Image data and session ID required' });
@@ -166,7 +166,8 @@ router.post('/screenshot', authMiddleware, async (req, res) => {
         const buffer = Buffer.from(base64Data, 'base64');
 
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const filename = `screenshot_${timestamp}.png`;
+        const safeName = (name || `Screenshot ${timestamp}`).replace(/[^a-zA-Z0-9À-ÿ _-]/g, '');
+        const filename = `${safeName}_${timestamp}.png`;
         const targetPath = `${req.user.id}/${courseId || 'general'}/${filename}`;
 
         const result = await uploadFile(buffer, targetPath, 'image/png');
@@ -174,7 +175,7 @@ router.post('/screenshot', authMiddleware, async (req, res) => {
         // Save document reference
         const doc = await prisma.document.create({
             data: {
-                title: `Screenshot ${timestamp}`,
+                title: safeName,
                 type: 'SCREENSHOT',
                 url: result.url,
                 size: buffer.length,

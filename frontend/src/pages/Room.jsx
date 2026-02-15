@@ -12,16 +12,34 @@ import { Track, DataPacket_Kind, RoomEvent } from 'livekit-client';
 import {
     ArrowLeft, Video, VideoOff, Mic, MicOff, PenTool,
     Eraser, Type, Square, Circle, Minus, Camera, Trash2,
-    Lock, Unlock, MessageSquare, Send, Upload, X, Grid3X3,
-    Palette, ChevronDown
+    Lock, Unlock, MessageSquare, Send, X, Grid3X3,
+    Monitor, MonitorOff, ImagePlus,
 } from 'lucide-react';
 
-const COLORS = ['#000000', '#ef4444', '#22c55e', '#3b82f6'];
-const BACKGROUNDS = [
-    { id: 'white', label: 'Blanc', color: '#ffffff' },
-    { id: 'grid', label: 'Quadrillage', color: '#f0f0f0' },
-    { id: 'seyes', label: 'Seyès', color: '#f5f0e8' },
-];
+// ─── Constants ───────────────────────────────────────
+const COLORS = ['#000000', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6'];
+
+const BG_STYLES = {
+    white: { label: 'Blanc', css: 'white' },
+    grid: {
+        label: 'Grille',
+        css: `
+            repeating-linear-gradient(0deg, #ddd, #ddd 0.5px, transparent 0.5px, transparent 25px),
+            repeating-linear-gradient(90deg, #ddd, #ddd 0.5px, transparent 0.5px, transparent 25px),
+            white
+        `,
+    },
+    seyes: {
+        label: 'Seyès',
+        css: `
+            repeating-linear-gradient(0deg, #c8b8e8 0px, #c8b8e8 0.5px, transparent 0.5px, transparent 8px),
+            repeating-linear-gradient(0deg, #9b8ec4 0px, #9b8ec4 1px, transparent 1px, transparent 32px),
+            linear-gradient(90deg, transparent 59px, #f0c0c0 59px, #f0c0c0 61px, transparent 61px),
+            #f5f0e8
+        `,
+    },
+};
+
 const TOOLS = [
     { id: 'pen', icon: PenTool, label: 'Stylo' },
     { id: 'eraser', icon: Eraser, label: 'Gomme' },
@@ -29,11 +47,12 @@ const TOOLS = [
     { id: 'rect', icon: Square, label: 'Rectangle' },
     { id: 'circle', icon: Circle, label: 'Cercle' },
     { id: 'text', icon: Type, label: 'Texte' },
+    { id: 'image', icon: ImagePlus, label: 'Image' },
 ];
 
-// ========================================================
+// ======================================================
 // MAIN ROOM COMPONENT
-// ========================================================
+// ======================================================
 export default function Room() {
     const { courseCode } = useParams();
     const { user } = useAuthStore();
@@ -65,7 +84,6 @@ export default function Room() {
             </div>
         );
     }
-
     if (error) {
         return (
             <div className="min-h-screen flex items-center justify-center">
@@ -97,36 +115,131 @@ export default function Room() {
     );
 }
 
-// ========================================================
-// ROOM CONTENT (inside LiveKitRoom context)
-// ========================================================
+// ======================================================
+// ROOM CONTENT  (inside LiveKitRoom context)
+// ======================================================
 function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
-    const [whiteboardOpen, setWhiteboardOpen] = useState(false);
+    // ── State ────────────────────────────────────────
+    const [viewMode, setViewMode] = useState('VIDEO');       // VIDEO | BOARD | SCREEN_SHARE
     const [chatOpen, setChatOpen] = useState(false);
     const [locked, setLocked] = useState(false);
+    const isProf = user.role === 'PROF';
+
+    // ── LiveKit hooks ────────────────────────────────
     const remoteParticipants = useRemoteParticipants();
     const { localParticipant } = useLocalParticipant();
-    const remoteTracks = useTracks([Track.Source.Camera], { onlySubscribed: true });
-    const localTracks = useTracks([Track.Source.Camera], { participant: localParticipant });
+    const allCameraTracks = useTracks([Track.Source.Camera], { onlySubscribed: false });
+    const screenShareTracks = useTracks([Track.Source.ScreenShare], { onlySubscribed: false });
 
-    const [videoEnabled, setVideoEnabled] = useState(true);
-    const [audioEnabled, setAudioEnabled] = useState(true);
+    // ── Camera / Mic state synced with hardware ──────
+    const [videoEnabled, setVideoEnabled] = useState(false);
+    const [audioEnabled, setAudioEnabled] = useState(false);
 
-    const toggleVideo = () => {
-        localParticipant?.setCameraEnabled(!videoEnabled);
+    // Sync button state with actual hardware state on connect
+    useEffect(() => {
+        if (!localParticipant) return;
+        const sync = () => {
+            setVideoEnabled(localParticipant.isCameraEnabled);
+            setAudioEnabled(localParticipant.isMicrophoneEnabled);
+        };
+        sync();
+        // re-sync when tracks change
+        localParticipant.on('trackPublished', sync);
+        localParticipant.on('trackUnpublished', sync);
+        localParticipant.on('localTrackPublished', sync);
+        localParticipant.on('localTrackUnpublished', sync);
+        return () => {
+            localParticipant.off('trackPublished', sync);
+            localParticipant.off('trackUnpublished', sync);
+            localParticipant.off('localTrackPublished', sync);
+            localParticipant.off('localTrackUnpublished', sync);
+        };
+    }, [localParticipant]);
+
+    const toggleVideo = async () => {
+        await localParticipant?.setCameraEnabled(!videoEnabled);
         setVideoEnabled(!videoEnabled);
     };
-    const toggleAudio = () => {
-        localParticipant?.setMicrophoneEnabled(!audioEnabled);
+    const toggleAudio = async () => {
+        await localParticipant?.setMicrophoneEnabled(!audioEnabled);
         setAudioEnabled(!audioEnabled);
     };
 
-    const remoteVideoTrack = remoteTracks.find(t => t.source === Track.Source.Camera && t.participant !== localParticipant);
-    const localVideoTrack = localTracks.find(t => t.source === Track.Source.Camera);
+    // ── Screen Share (Prof only) ─────────────────────
+    const [screenSharing, setScreenSharing] = useState(false);
+    const toggleScreenShare = async () => {
+        if (!isProf) return;
+        const next = !screenSharing;
+        await localParticipant?.setScreenShareEnabled(next);
+        setScreenSharing(next);
+        if (next) {
+            broadcastMode('SCREEN_SHARE');
+        } else {
+            broadcastMode('VIDEO');
+        }
+    };
+
+    // ── Teacher-led mode broadcast ───────────────────
+    const broadcastMode = useCallback((mode) => {
+        setViewMode(mode);
+        if (!localParticipant?.publishData) return;
+        const msg = JSON.stringify({ type: 'mode', mode });
+        localParticipant.publishData(new TextEncoder().encode(msg), DataPacket_Kind.RELIABLE);
+    }, [localParticipant]);
+
+    const toggleWhiteboard = () => {
+        if (!isProf) return;
+        const next = viewMode === 'BOARD' ? 'VIDEO' : 'BOARD';
+        broadcastMode(next);
+    };
+
+    // ── Student listens for mode changes + lock ──────
+    useEffect(() => {
+        const room = localParticipant?.room;
+        if (!room) return;
+        const handler = (payload, participant) => {
+            if (participant?.identity === localParticipant?.identity) return;
+            try {
+                const data = JSON.parse(new TextDecoder().decode(payload));
+                if (data.type === 'mode') setViewMode(data.mode);
+                if (data.type === 'lock') setLocked(data.locked);
+            } catch (e) { }
+        };
+        room.on(RoomEvent.DataReceived, handler);
+        return () => room.off(RoomEvent.DataReceived, handler);
+    }, [localParticipant]);
+
+    // ── Lock broadcast (Prof) ────────────────────────
+    const toggleLock = () => {
+        const next = !locked;
+        setLocked(next);
+        if (localParticipant?.publishData) {
+            const msg = JSON.stringify({ type: 'lock', locked: next });
+            localParticipant.publishData(new TextEncoder().encode(msg), DataPacket_Kind.RELIABLE);
+        }
+    };
+
+    // ── Derive video tracks ──────────────────────────
+    const remoteVideoTrack = allCameraTracks.find(
+        t => t.source === Track.Source.Camera && t.participant?.identity !== localParticipant?.identity
+    );
+    const localVideoTrack = allCameraTracks.find(
+        t => t.source === Track.Source.Camera && t.participant?.identity === localParticipant?.identity
+    );
+    const remoteScreenTrack = screenShareTracks.find(
+        t => t.participant?.identity !== localParticipant?.identity
+    );
+    const localScreenTrack = screenShareTracks.find(
+        t => t.participant?.identity === localParticipant?.identity
+    );
+    const activeScreenTrack = localScreenTrack || remoteScreenTrack;
+
+    // ── Layout decision ──────────────────────────────
+    const showBoard = viewMode === 'BOARD' || viewMode === 'SCREEN_SHARE';
 
     return (
         <div className="h-screen flex flex-col">
-            {/* Top Bar */}
+            {/* ── Top Bar ──────────────────────────── */}
             <div className="h-12 glass-strong border-b flex items-center justify-between px-4 shrink-0">
                 <div className="flex items-center gap-3">
                     <Button variant="ghost" size="sm" onClick={onLeave}>
@@ -142,19 +255,33 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
                 </div>
 
                 <div className="flex items-center gap-2">
-                    {user.role === 'PROF' && (
-                        <Button
-                            variant={locked ? 'destructive' : 'ghost'}
-                            size="sm"
-                            onClick={() => setLocked(!locked)}
-                            title={locked ? 'Déverrouiller l\'élève' : 'Verrouiller l\'élève'}
-                        >
-                            {locked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-                        </Button>
+                    {/* Prof-only controls */}
+                    {isProf && (
+                        <>
+                            <Button
+                                variant={locked ? 'destructive' : 'ghost'} size="sm"
+                                onClick={toggleLock}
+                                title={locked ? 'Déverrouiller' : 'Verrouiller'}
+                            >
+                                {locked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                            </Button>
+                            <Button
+                                variant={viewMode === 'BOARD' ? 'default' : 'ghost'} size="sm"
+                                onClick={toggleWhiteboard}
+                            >
+                                <PenTool className="w-4 h-4 mr-1" /> Tableau
+                            </Button>
+                            <Button
+                                variant={screenSharing ? 'default' : 'ghost'} size="sm"
+                                onClick={toggleScreenShare}
+                            >
+                                {screenSharing
+                                    ? <><MonitorOff className="w-4 h-4 mr-1" /> Stop Écran</>
+                                    : <><Monitor className="w-4 h-4 mr-1" /> Écran</>
+                                }
+                            </Button>
+                        </>
                     )}
-                    <Button variant={whiteboardOpen ? 'default' : 'ghost'} size="sm" onClick={() => setWhiteboardOpen(!whiteboardOpen)}>
-                        <PenTool className="w-4 h-4 mr-1" /> Tableau
-                    </Button>
                     <Button variant={chatOpen ? 'default' : 'ghost'} size="sm" onClick={() => setChatOpen(!chatOpen)}>
                         <MessageSquare className="w-4 h-4 mr-1" /> Chat
                     </Button>
@@ -162,73 +289,96 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
                 </div>
             </div>
 
-            {/* Main Area */}
+            {/* ── Main Area ────────────────────────── */}
             <div className="flex-1 flex overflow-hidden relative">
-                {/* Video Area */}
-                <div className={`flex-1 relative bg-black ${whiteboardOpen ? 'hidden md:block md:w-1/4' : 'w-full'}`}>
-                    {/* Remote video (full size or PiP) */}
-                    {remoteVideoTrack ? (
-                        <div className={whiteboardOpen ? 'absolute top-2 right-2 w-48 h-36 rounded-lg overflow-hidden z-10 border-2 border-border shadow-xl' : 'w-full h-full'}>
+
+                {/* VIDEO-ONLY mode: full screen */}
+                {!showBoard && (
+                    <div className="flex-1 relative bg-black">
+                        {remoteVideoTrack ? (
                             <VideoTrack trackRef={remoteVideoTrack} className="w-full h-full object-cover" />
-                        </div>
-                    ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                            <p className="text-muted-foreground">En attente du participant...</p>
-                        </div>
-                    )}
-
-                    {/* Local video (PiP) */}
-                    {localVideoTrack && (
-                        <div className={`absolute ${whiteboardOpen ? 'bottom-2 right-2 w-32 h-24' : 'bottom-4 right-4 w-48 h-36'} rounded-lg overflow-hidden z-10 border-2 border-border shadow-xl`}>
-                            <VideoTrack trackRef={localVideoTrack} className="w-full h-full object-cover mirror" />
-                        </div>
-                    )}
-                </div>
-
-                {/* Whiteboard */}
-                {whiteboardOpen && (
-                    <div className="flex-1 relative bg-white">
-                        <Whiteboard
-                            localParticipant={localParticipant}
-                            locked={locked && user.role === 'STUDENT'}
-                        />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                                <p className="text-muted-foreground">En attente du participant...</p>
+                            </div>
+                        )}
+                        {localVideoTrack && (
+                            <div className="absolute bottom-4 right-4 w-48 h-36 rounded-lg overflow-hidden z-10 border-2 border-border shadow-xl">
+                                <VideoTrack trackRef={localVideoTrack} className="w-full h-full object-cover mirror" />
+                            </div>
+                        )}
                     </div>
+                )}
+
+                {/* BOARD / SCREEN_SHARE mode: whiteboard center, videos RIGHT */}
+                {showBoard && (
+                    <>
+                        {/* Whiteboard / Screen+Annotation area */}
+                        <div className="flex-1 relative">
+                            {viewMode === 'SCREEN_SHARE' && activeScreenTrack && (
+                                <div className="absolute inset-0 z-0">
+                                    <VideoTrack trackRef={activeScreenTrack} className="w-full h-full object-contain bg-black" />
+                                </div>
+                            )}
+                            <div className={`absolute inset-0 ${viewMode === 'SCREEN_SHARE' ? 'z-10' : 'z-0'}`}>
+                                <Whiteboard
+                                    localParticipant={localParticipant}
+                                    locked={locked && !isProf}
+                                    transparent={viewMode === 'SCREEN_SHARE'}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Video PiPs — RIGHT column */}
+                        <div className="w-56 bg-gray-950 border-l border-border flex flex-col gap-2 p-2 shrink-0">
+                            {remoteVideoTrack && (
+                                <div className="w-full aspect-video rounded-lg overflow-hidden border border-border">
+                                    <VideoTrack trackRef={remoteVideoTrack} className="w-full h-full object-cover" />
+                                </div>
+                            )}
+                            {localVideoTrack && (
+                                <div className="w-full aspect-video rounded-lg overflow-hidden border border-border">
+                                    <VideoTrack trackRef={localVideoTrack} className="w-full h-full object-cover mirror" />
+                                </div>
+                            )}
+                            {!remoteVideoTrack && !localVideoTrack && (
+                                <div className="flex-1 flex items-center justify-center">
+                                    <p className="text-xs text-muted-foreground text-center">Caméras désactivées</p>
+                                </div>
+                            )}
+                        </div>
+                    </>
                 )}
 
                 {/* Chat Panel */}
                 {chatOpen && (
                     <ChatPanel
                         localParticipant={localParticipant}
-                        courseCode={courseCode}
                         user={user}
                         onClose={() => setChatOpen(false)}
                     />
                 )}
             </div>
 
-            {/* Bottom Controls */}
+            {/* ── Bottom Controls ──────────────────── */}
             <div className="h-16 glass-strong border-t flex items-center justify-center gap-3 shrink-0">
                 <Button
                     variant={videoEnabled ? 'secondary' : 'destructive'}
-                    size="icon"
-                    className="rounded-full w-12 h-12"
+                    size="icon" className="rounded-full w-12 h-12"
                     onClick={toggleVideo}
                 >
                     {videoEnabled ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
                 </Button>
                 <Button
                     variant={audioEnabled ? 'secondary' : 'destructive'}
-                    size="icon"
-                    className="rounded-full w-12 h-12"
+                    size="icon" className="rounded-full w-12 h-12"
                     onClick={toggleAudio}
                 >
                     {audioEnabled ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
                 </Button>
                 <Button
-                    variant="destructive"
-                    size="icon"
-                    className="rounded-full w-12 h-12"
-                    onClick={onLeave}
+                    variant="destructive" size="icon"
+                    className="rounded-full w-12 h-12" onClick={onLeave}
                 >
                     <X className="w-5 h-5" />
                 </Button>
@@ -237,102 +387,95 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
     );
 }
 
-// ========================================================
-// WHITEBOARD (Canvas + DataChannel)
-// ========================================================
-function Whiteboard({ localParticipant, locked }) {
+// ======================================================
+// WHITEBOARD  (Two-layer: CSS background + transparent canvas)
+// ======================================================
+function Whiteboard({ localParticipant, locked, transparent }) {
     const canvasRef = useRef(null);
+    const wrapperRef = useRef(null);
     const [tool, setTool] = useState('pen');
     const [color, setColor] = useState(COLORS[3]);
     const [thickness, setThickness] = useState(3);
     const [background, setBackground] = useState('white');
     const [isDrawing, setIsDrawing] = useState(false);
     const lastPoint = useRef(null);
-    const drawingsRef = useRef([]);
     const shapeStartRef = useRef(null);
 
-    // Set up canvas and DataChannel listener
+    // ── Custom eraser cursor ─────────────────────────
+    const eraserRef = useRef(null);
+    const [eraserPos, setEraserPos] = useState({ x: -100, y: -100 });
+    const eraserSize = thickness * 5;
+
+    // ── Text input state ─────────────────────────────
+    const [textInput, setTextInput] = useState(null); // { x, y }
+    const textRef = useRef(null);
+
+    // ── Image upload ref ─────────────────────────────
+    const imageInputRef = useRef(null);
+
+    // Set up canvas size
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-        canvas.width = canvas.offsetWidth;
-        canvas.height = canvas.offsetHeight;
-        drawBackground(canvas, background);
+        const resize = () => {
+            const rect = canvas.parentElement.getBoundingClientRect();
+            // Save current drawing
+            const tmpCanvas = document.createElement('canvas');
+            tmpCanvas.width = canvas.width;
+            tmpCanvas.height = canvas.height;
+            tmpCanvas.getContext('2d').drawImage(canvas, 0, 0);
 
-        // Listen for incoming drawing data
-        const handleData = (payload, participant) => {
-            if (participant === localParticipant) return;
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(tmpCanvas, 0, 0);
+        };
+        resize();
+        window.addEventListener('resize', resize);
+        return () => window.removeEventListener('resize', resize);
+    }, []);
+
+    // ── DataChannel listener for remote drawings ─────
+    useEffect(() => {
+        const room = localParticipant?.room;
+        if (!room) return;
+
+        const handler = (payload, participant) => {
+            // Skip messages from self
+            if (participant?.identity === localParticipant?.identity) return;
             try {
                 const data = JSON.parse(new TextDecoder().decode(payload));
-                if (data.type === 'draw') {
-                    applyDrawing(canvas, data);
-                } else if (data.type === 'clear') {
-                    clearCanvas(canvas);
-                }
+                if (data.type === 'draw') applyDrawing(canvasRef.current, data);
+                else if (data.type === 'clear') clearCanvas();
+                else if (data.type === 'text-live') applyTextLive(data);
+                else if (data.type === 'text-commit') applyDrawing(canvasRef.current, data);
+                else if (data.type === 'image') applyImage(canvasRef.current, data);
             } catch (e) { }
         };
 
-        const room = localParticipant?.room;
-        if (room) {
-            room.on(RoomEvent.DataReceived, handleData);
-            return () => room.off(RoomEvent.DataReceived, handleData);
-        }
+        room.on(RoomEvent.DataReceived, handler);
+        return () => room.off(RoomEvent.DataReceived, handler);
     }, [localParticipant, background]);
 
-    // Handle resize
-    useEffect(() => {
-        const handleResize = () => {
-            const canvas = canvasRef.current;
-            if (!canvas) return;
-            // Save image data
-            const ctx = canvas.getContext('2d');
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            canvas.width = canvas.offsetWidth;
-            canvas.height = canvas.offsetHeight;
-            drawBackground(canvas, background);
-            ctx.putImageData(imageData, 0, 0);
-        };
-        window.addEventListener('resize', handleResize);
-        return () => window.removeEventListener('resize', handleResize);
-    }, [background]);
-
-    const drawBackground = (canvas, bg) => {
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = BACKGROUNDS.find(b => b.id === bg)?.color || '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        if (bg === 'grid') {
-            ctx.strokeStyle = '#ddd';
-            ctx.lineWidth = 0.5;
-            for (let x = 0; x < canvas.width; x += 25) {
-                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
-            }
-            for (let y = 0; y < canvas.height; y += 25) {
-                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
-            }
-        } else if (bg === 'seyes') {
-            // Seyès (grands carreaux)
-            ctx.strokeStyle = '#c8b8e8';
-            ctx.lineWidth = 0.5;
-            for (let y = 0; y < canvas.height; y += 8) {
-                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
-            }
-            ctx.strokeStyle = '#9b8ec4';
-            ctx.lineWidth = 1;
-            for (let y = 0; y < canvas.height; y += 32) {
-                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
-            }
-            ctx.strokeStyle = '#f0c0c0';
-            ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.moveTo(60, 0); ctx.lineTo(60, canvas.height); ctx.stroke();
-        }
-    };
-
+    // ── Drawing logic ────────────────────────────────
     const applyDrawing = (canvas, data) => {
+        if (!canvas) return;
         const ctx = canvas.getContext('2d');
-        if (data.tool === 'pen' || data.tool === 'eraser') {
+        ctx.save();
+
+        if (data.tool === 'pen') {
+            ctx.globalCompositeOperation = 'source-over';
             ctx.beginPath();
-            ctx.strokeStyle = data.tool === 'eraser' ? (BACKGROUNDS.find(b => b.id === background)?.color || '#fff') : data.color;
+            ctx.strokeStyle = data.color;
+            ctx.lineWidth = data.thickness;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.moveTo(data.x1, data.y1);
+            ctx.lineTo(data.x2, data.y2);
+            ctx.stroke();
+        } else if (data.tool === 'eraser') {
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.beginPath();
             ctx.lineWidth = data.thickness;
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
@@ -340,6 +483,7 @@ function Whiteboard({ localParticipant, locked }) {
             ctx.lineTo(data.x2, data.y2);
             ctx.stroke();
         } else if (data.tool === 'line') {
+            ctx.globalCompositeOperation = 'source-over';
             ctx.beginPath();
             ctx.strokeStyle = data.color;
             ctx.lineWidth = data.thickness;
@@ -347,32 +491,60 @@ function Whiteboard({ localParticipant, locked }) {
             ctx.lineTo(data.x2, data.y2);
             ctx.stroke();
         } else if (data.tool === 'rect') {
+            ctx.globalCompositeOperation = 'source-over';
             ctx.strokeStyle = data.color;
             ctx.lineWidth = data.thickness;
             ctx.strokeRect(data.x1, data.y1, data.x2 - data.x1, data.y2 - data.y1);
         } else if (data.tool === 'circle') {
+            ctx.globalCompositeOperation = 'source-over';
             const rx = (data.x2 - data.x1) / 2;
             const ry = (data.y2 - data.y1) / 2;
-            const cx = data.x1 + rx;
-            const cy = data.y1 + ry;
             ctx.beginPath();
             ctx.strokeStyle = data.color;
             ctx.lineWidth = data.thickness;
-            ctx.ellipse(cx, cy, Math.abs(rx), Math.abs(ry), 0, 0, Math.PI * 2);
+            ctx.ellipse(data.x1 + rx, data.y1 + ry, Math.abs(rx), Math.abs(ry), 0, 0, Math.PI * 2);
             ctx.stroke();
-        } else if (data.tool === 'text') {
+        } else if (data.tool === 'text' || data.tool === 'text-commit') {
+            ctx.globalCompositeOperation = 'source-over';
             ctx.fillStyle = data.color;
             ctx.font = `${data.thickness * 6}px Inter, sans-serif`;
             ctx.fillText(data.text, data.x1, data.y1);
         }
+
+        ctx.restore();
     };
 
-    const sendDrawing = (drawData) => {
-        if (!localParticipant?.room) return;
+    // ── Remote text overlay (live preview) ───────────
+    const [remoteText, setRemoteText] = useState(null);
+    const applyTextLive = (data) => {
+        setRemoteText({ x: data.x1, y: data.y1, text: data.text, color: data.color, size: data.thickness * 6 });
+    };
+
+    // ── Image apply ──────────────────────────────────
+    const applyImage = (canvas, data) => {
+        if (!canvas) return;
+        const img = new Image();
+        img.onload = () => {
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, data.x, data.y, data.w, data.h);
+        };
+        img.src = data.src;
+    };
+
+    // ── Broadcast helper ─────────────────────────────
+    const sendDraw = (drawData) => {
+        if (!localParticipant?.publishData) return;
         const encoded = new TextEncoder().encode(JSON.stringify({ type: 'draw', ...drawData }));
         localParticipant.publishData(encoded, DataPacket_Kind.RELIABLE);
     };
 
+    const sendData = (payload) => {
+        if (!localParticipant?.publishData) return;
+        const encoded = new TextEncoder().encode(JSON.stringify(payload));
+        localParticipant.publishData(encoded, DataPacket_Kind.RELIABLE);
+    };
+
+    // ── Get canvas-relative position ─────────────────
     const getPos = (e) => {
         const canvas = canvasRef.current;
         const rect = canvas.getBoundingClientRect();
@@ -381,42 +553,49 @@ function Whiteboard({ localParticipant, locked }) {
         return { x: clientX - rect.left, y: clientY - rect.top };
     };
 
+    // ── Pointer handlers ─────────────────────────────
     const handlePointerDown = (e) => {
         if (locked) return;
         const pos = getPos(e);
-        setIsDrawing(true);
 
+        // Text tool: open inline input
         if (tool === 'text') {
-            const text = prompt('Entrez le texte :');
-            if (text) {
-                const drawData = { tool: 'text', x1: pos.x, y1: pos.y, color, thickness, text };
-                applyDrawing(canvasRef.current, drawData);
-                sendDrawing(drawData);
-            }
-            setIsDrawing(false);
+            setTextInput(pos);
+            setTimeout(() => textRef.current?.focus(), 50);
             return;
         }
 
+        // Image tool: open file picker
+        if (tool === 'image') {
+            imageInputRef.current?.click();
+            return;
+        }
+
+        setIsDrawing(true);
         if (['line', 'rect', 'circle'].includes(tool)) {
             shapeStartRef.current = pos;
         }
-
         lastPoint.current = pos;
     };
 
     const handlePointerMove = (e) => {
+        // Update eraser cursor position
+        if (tool === 'eraser') {
+            const pos = getPos(e);
+            setEraserPos(pos);
+        }
+
         if (!isDrawing || locked) return;
         const pos = getPos(e);
 
         if (tool === 'pen' || tool === 'eraser') {
             const drawData = {
-                tool,
-                x1: lastPoint.current.x, y1: lastPoint.current.y,
+                tool, x1: lastPoint.current.x, y1: lastPoint.current.y,
                 x2: pos.x, y2: pos.y,
                 color, thickness: tool === 'eraser' ? thickness * 5 : thickness,
             };
             applyDrawing(canvasRef.current, drawData);
-            sendDrawing(drawData);
+            sendDraw(drawData);
             lastPoint.current = pos;
         }
     };
@@ -428,115 +607,242 @@ function Whiteboard({ localParticipant, locked }) {
         if (['line', 'rect', 'circle'].includes(tool) && shapeStartRef.current) {
             const pos = getPos(e.changedTouches ? e.changedTouches[0] : e);
             const drawData = {
-                tool,
-                x1: shapeStartRef.current.x, y1: shapeStartRef.current.y,
-                x2: pos.x, y2: pos.y,
-                color, thickness,
+                tool, x1: shapeStartRef.current.x, y1: shapeStartRef.current.y,
+                x2: pos.x, y2: pos.y, color, thickness,
             };
             applyDrawing(canvasRef.current, drawData);
-            sendDrawing(drawData);
+            sendDraw(drawData);
             shapeStartRef.current = null;
         }
     };
 
-    const clearCanvas = (canvas) => {
+    // ── Text tool: commit on Enter / blur ────────────
+    const commitText = (text) => {
+        if (!textInput || !text) { setTextInput(null); return; }
+        const drawData = { tool: 'text', x1: textInput.x, y1: textInput.y + thickness * 6, color, thickness, text };
+        applyDrawing(canvasRef.current, drawData);
+        sendData({ type: 'text-commit', ...drawData });
+        setTextInput(null);
+        setRemoteText(null);
+    };
+
+    const handleTextKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            commitText(e.target.value);
+        } else if (e.key === 'Escape') {
+            setTextInput(null);
+        } else {
+            // Broadcast live keystroke
+            setTimeout(() => {
+                sendData({
+                    type: 'text-live',
+                    x1: textInput.x, y1: textInput.y,
+                    text: e.target.value + (e.key.length === 1 ? e.key : ''),
+                    color, thickness,
+                });
+            }, 0);
+        }
+    };
+
+    // ── Image import ─────────────────────────────────
+    const handleImageUpload = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = canvasRef.current;
+                if (!canvas) return;
+                // Scale to fit max 400px wide
+                const maxW = 400;
+                const scale = img.width > maxW ? maxW / img.width : 1;
+                const w = img.width * scale;
+                const h = img.height * scale;
+                const x = (canvas.width - w) / 2;
+                const y = (canvas.height - h) / 2;
+
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, x, y, w, h);
+
+                // Broadcast
+                sendData({ type: 'image', src: ev.target.result, x, y, w, h });
+            };
+            img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+        e.target.value = '';
+    };
+
+    // ── Clear ────────────────────────────────────────
+    const clearCanvas = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        drawBackground(canvas, background);
     };
 
     const handleClear = () => {
         if (!confirm('Tout effacer ?')) return;
-        clearCanvas(canvasRef.current);
-        if (localParticipant?.room) {
-            const encoded = new TextEncoder().encode(JSON.stringify({ type: 'clear' }));
-            localParticipant.publishData(encoded, DataPacket_Kind.RELIABLE);
-        }
+        clearCanvas();
+        sendData({ type: 'clear' });
+    };
+
+    // ── Cursor style ─────────────────────────────────
+    const getCursor = () => {
+        if (locked) return 'not-allowed';
+        if (tool === 'eraser') return 'none';
+        if (tool === 'text') return 'text';
+        return 'crosshair';
     };
 
     return (
         <div className="h-full flex">
-            {/* Toolbar */}
-            <div className="w-14 bg-gray-100 border-r border-gray-200 flex flex-col items-center py-3 gap-1 shrink-0">
+            {/* ── Toolbar ─────────────────────────── */}
+            <div className="w-14 bg-gray-100 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col items-center py-3 gap-1 shrink-0 z-20">
                 {TOOLS.map(t => (
                     <button
                         key={t.id}
-                        onClick={() => setTool(t.id)}
+                        onClick={() => {
+                            setTool(t.id);
+                            if (t.id === 'image') imageInputRef.current?.click();
+                        }}
                         title={t.label}
-                        className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${tool === t.id ? 'bg-primary text-white shadow' : 'text-gray-600 hover:bg-gray-200'
+                        className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${tool === t.id ? 'bg-primary text-white shadow' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800'
                             }`}
                     >
                         <t.icon className="w-5 h-5" />
                     </button>
                 ))}
 
-                <div className="w-8 border-t border-gray-300 my-2" />
+                <div className="w-8 border-t border-gray-300 dark:border-gray-600 my-2" />
 
                 {/* Colors */}
                 {COLORS.map(c => (
                     <button
                         key={c}
                         onClick={() => setColor(c)}
-                        className={`w-7 h-7 rounded-full border-2 transition-transform ${color === c ? 'border-primary scale-110' : 'border-gray-300'
+                        className={`w-7 h-7 rounded-full border-2 transition-transform ${color === c ? 'border-primary scale-110' : 'border-gray-300 dark:border-gray-600'
                             }`}
                         style={{ backgroundColor: c }}
                     />
                 ))}
 
-                <div className="w-8 border-t border-gray-300 my-2" />
+                <div className="w-8 border-t border-gray-300 dark:border-gray-600 my-2" />
 
                 {/* Thickness */}
                 <input
-                    type="range"
-                    min={1} max={10}
+                    type="range" min={1} max={10}
                     value={thickness}
-                    onChange={(e) => setThickness(parseInt(e.target.value))}
+                    onChange={e => setThickness(parseInt(e.target.value))}
                     className="w-10 rotate-[-90deg] mt-4 mb-4"
                 />
 
-                <div className="w-8 border-t border-gray-300 my-2" />
+                <div className="w-8 border-t border-gray-300 dark:border-gray-600 my-2" />
 
-                {/* Background */}
-                {BACKGROUNDS.map(bg => (
+                {/* Background (only in BOARD mode, not SCREEN_SHARE) */}
+                {!transparent && Object.entries(BG_STYLES).map(([id, bg]) => (
                     <button
-                        key={bg.id}
-                        onClick={() => { setBackground(bg.id); drawBackground(canvasRef.current, bg.id); }}
+                        key={id}
+                        onClick={() => setBackground(id)}
                         title={bg.label}
-                        className={`w-8 h-8 rounded border-2 transition-colors ${background === bg.id ? 'border-primary' : 'border-gray-300'
+                        className={`w-8 h-8 rounded border-2 transition-colors ${background === id ? 'border-primary' : 'border-gray-300 dark:border-gray-600'
                             }`}
-                        style={{ backgroundColor: bg.color }}
+                        style={{ background: id === 'white' ? '#fff' : id === 'grid' ? '#f0f0f0' : '#f5f0e8' }}
                     >
-                        {bg.id === 'grid' && <Grid3X3 className="w-4 h-4 text-gray-400 mx-auto" />}
+                        {id === 'grid' && <Grid3X3 className="w-4 h-4 text-gray-400 mx-auto" />}
                     </button>
                 ))}
 
                 <div className="mt-auto" />
-                <button onClick={handleClear} title="Tout effacer" className="w-10 h-10 rounded-lg text-red-500 hover:bg-red-100 flex items-center justify-center">
+                <button onClick={handleClear} title="Tout effacer"
+                    className="w-10 h-10 rounded-lg text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 flex items-center justify-center">
                     <Trash2 className="w-5 h-5" />
                 </button>
             </div>
 
-            {/* Canvas */}
-            <canvas
-                ref={canvasRef}
-                className="flex-1 whiteboard-canvas"
-                style={{ cursor: locked ? 'not-allowed' : (tool === 'eraser' ? 'cell' : 'crosshair') }}
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
-                onPointerLeave={() => setIsDrawing(false)}
-                onTouchStart={handlePointerDown}
-                onTouchMove={handlePointerMove}
-                onTouchEnd={handlePointerUp}
-            />
+            {/* ── Canvas area ─────────────────────── */}
+            <div
+                ref={wrapperRef}
+                className="flex-1 relative overflow-hidden"
+                style={{
+                    background: transparent ? 'transparent' : BG_STYLES[background]?.css || 'white',
+                }}
+            >
+                <canvas
+                    ref={canvasRef}
+                    className="absolute inset-0 w-full h-full"
+                    style={{ cursor: getCursor(), background: 'transparent' }}
+                    onPointerDown={handlePointerDown}
+                    onPointerMove={handlePointerMove}
+                    onPointerUp={handlePointerUp}
+                    onPointerLeave={() => { setIsDrawing(false); setEraserPos({ x: -100, y: -100 }); }}
+                    onTouchStart={handlePointerDown}
+                    onTouchMove={handlePointerMove}
+                    onTouchEnd={handlePointerUp}
+                />
+
+                {/* Custom eraser cursor */}
+                {tool === 'eraser' && (
+                    <div
+                        ref={eraserRef}
+                        className="pointer-events-none absolute rounded-full border border-black/50 bg-white/80"
+                        style={{
+                            width: eraserSize, height: eraserSize,
+                            left: eraserPos.x - eraserSize / 2,
+                            top: eraserPos.y - eraserSize / 2,
+                            transition: 'left 0.02s, top 0.02s',
+                        }}
+                    />
+                )}
+
+                {/* Inline text input */}
+                {textInput && (
+                    <input
+                        ref={textRef}
+                        type="text"
+                        autoFocus
+                        className="absolute z-30 bg-transparent border-b-2 border-primary outline-none"
+                        style={{
+                            left: textInput.x,
+                            top: textInput.y,
+                            color,
+                            fontSize: thickness * 6,
+                            fontFamily: 'Inter, sans-serif',
+                            minWidth: 60,
+                        }}
+                        onKeyDown={handleTextKeyDown}
+                        onBlur={e => commitText(e.target.value)}
+                    />
+                )}
+
+                {/* Remote live text preview */}
+                {remoteText && (
+                    <span
+                        className="absolute pointer-events-none opacity-60 z-30"
+                        style={{
+                            left: remoteText.x,
+                            top: remoteText.y,
+                            color: remoteText.color,
+                            fontSize: remoteText.size,
+                            fontFamily: 'Inter, sans-serif',
+                        }}
+                    >
+                        {remoteText.text}
+                    </span>
+                )}
+
+                {/* Hidden image input */}
+                <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+            </div>
         </div>
     );
 }
 
-// ========================================================
-// CHAT PANEL
-// ========================================================
-function ChatPanel({ localParticipant, courseCode, user, onClose }) {
+// ======================================================
+// CHAT PANEL  (DataChannel-based)
+// ======================================================
+function ChatPanel({ localParticipant, user, onClose }) {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
     const messagesEndRef = useRef(null);
@@ -545,7 +851,9 @@ function ChatPanel({ localParticipant, courseCode, user, onClose }) {
         const room = localParticipant?.room;
         if (!room) return;
 
-        const handleData = (payload, participant) => {
+        const handler = (payload, participant) => {
+            // Skip self-messages (we add them locally on send)
+            if (participant?.identity === localParticipant?.identity) return;
             try {
                 const data = JSON.parse(new TextDecoder().decode(payload));
                 if (data.type === 'chat') {
@@ -553,14 +861,14 @@ function ChatPanel({ localParticipant, courseCode, user, onClose }) {
                         sender: data.senderName,
                         text: data.text,
                         time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
-                        isMe: participant === localParticipant,
+                        isMe: false,
                     }]);
                 }
             } catch (e) { }
         };
 
-        room.on(RoomEvent.DataReceived, handleData);
-        return () => room.off(RoomEvent.DataReceived, handleData);
+        room.on(RoomEvent.DataReceived, handler);
+        return () => room.off(RoomEvent.DataReceived, handler);
     }, [localParticipant]);
 
     useEffect(() => {
@@ -581,7 +889,6 @@ function ChatPanel({ localParticipant, courseCode, user, onClose }) {
             time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
             isMe: true,
         }]);
-
         setInput('');
     };
 
@@ -593,7 +900,6 @@ function ChatPanel({ localParticipant, courseCode, user, onClose }) {
                     <X className="w-4 h-4" />
                 </button>
             </div>
-
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {messages.map((msg, i) => (
                     <div key={i} className={`flex flex-col ${msg.isMe ? 'items-end' : 'items-start'}`}>
@@ -606,11 +912,10 @@ function ChatPanel({ localParticipant, courseCode, user, onClose }) {
                 ))}
                 <div ref={messagesEndRef} />
             </div>
-
             <form onSubmit={sendMessage} className="p-3 border-t flex gap-2">
                 <input
                     value={input}
-                    onChange={(e) => setInput(e.target.value)}
+                    onChange={e => setInput(e.target.value)}
                     placeholder="Message..."
                     className="flex-1 h-9 rounded-lg bg-secondary/50 border border-input px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                 />
@@ -622,30 +927,70 @@ function ChatPanel({ localParticipant, courseCode, user, onClose }) {
     );
 }
 
-// ========================================================
-// SCREENSHOT BUTTON
-// ========================================================
+// ======================================================
+// SCREENSHOT BUTTON  (with naming modal)
+// ======================================================
 function ScreenshotButton({ sessionId, courseId }) {
     const [saving, setSaving] = useState(false);
+    const [showModal, setShowModal] = useState(false);
+    const [captureName, setCaptureName] = useState('');
+    const capturedDataRef = useRef(null);
 
-    const takeScreenshot = async () => {
-        const canvas = document.querySelector('.whiteboard-canvas');
+    const takeScreenshot = () => {
+        const canvas = document.querySelector('canvas');
         if (!canvas) return;
 
+        // Capture the canvas data
+        capturedDataRef.current = canvas.toDataURL('image/png');
+        const now = new Date();
+        setCaptureName(`Capture ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`);
+        setShowModal(true);
+    };
+
+    const confirmSave = async () => {
+        if (!capturedDataRef.current) return;
         setSaving(true);
         try {
-            const imageData = canvas.toDataURL('image/png');
-            await api.post('/room/screenshot', { imageData, sessionId, courseId });
+            await api.post('/room/screenshot', {
+                imageData: capturedDataRef.current,
+                sessionId,
+                courseId,
+                name: captureName,
+            });
         } catch (err) {
             console.error('Screenshot failed:', err);
         }
         setSaving(false);
+        setShowModal(false);
     };
 
     return (
-        <Button variant="ghost" size="sm" onClick={takeScreenshot} disabled={saving}>
-            <Camera className="w-4 h-4 mr-1" />
-            {saving ? '...' : '📸'}
-        </Button>
+        <>
+            <Button variant="ghost" size="sm" onClick={takeScreenshot} disabled={saving}>
+                <Camera className="w-4 h-4 mr-1" /> {saving ? '...' : '📸'}
+            </Button>
+
+            {/* Naming modal */}
+            {showModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+                    <div className="bg-background rounded-xl border p-6 w-96 shadow-2xl">
+                        <h3 className="text-lg font-semibold mb-4">Nommer la capture</h3>
+                        <input
+                            value={captureName}
+                            onChange={e => setCaptureName(e.target.value)}
+                            className="w-full h-10 rounded-lg bg-secondary/50 border border-input px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary mb-4"
+                            autoFocus
+                            onKeyDown={e => e.key === 'Enter' && confirmSave()}
+                        />
+                        <div className="flex justify-end gap-2">
+                            <Button variant="ghost" onClick={() => setShowModal(false)}>Annuler</Button>
+                            <Button onClick={confirmSave} disabled={saving}>
+                                {saving ? 'Enregistrement...' : 'Enregistrer'}
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </>
     );
 }
