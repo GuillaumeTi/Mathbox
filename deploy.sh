@@ -18,7 +18,7 @@ echo "========================================="
 echo ""
 echo "→ Building frontend..."
 cd frontend
-npm run build
+distrobox enter Mathbox -- npm run build
 cd ..
 
 # 2. Create deployment package
