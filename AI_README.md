@@ -31,10 +31,9 @@ This document contains critical information for any AI agent taking over the dev
 ### Deployment Workflow
  **Always use the script.**
 1.  **Commit & Push**: Ensure changes are pushed to the current branch (`correction` or `main`).
-2.  **Deploy**: Run `./deploy.sh` **inside the Distrobox container**.
-    -   Command: `distrobox enter Mathbox -- ./deploy.sh`
-    -   Builds Frontend locally (or in container if needed, script handles basic packaging).
-    -   Transfers code to VPS.
+2.  **Deploy**: Run `./deploy.sh` from the host.
+    -   The script automatically handles the Distrobox environment for building.
+    -   Builds Frontend, transfers code, and restarts services on VPS.
     -   Runs `npm install` and `npx prisma db push` on VPS.
     -   Restarts Backend via PM2 (`mathbox`).
 
