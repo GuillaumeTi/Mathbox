@@ -33,9 +33,16 @@ export default function StudentDashboard() {
 
     const fetchHomeworks = async () => {
         try {
-            const data = await api.get('/homework');
+            const data = await api.get('/homeworks');
             setHomeworks(data.homeworks || []);
         } catch (err) { }
+    };
+
+    const markAsDone = async (id) => {
+        try {
+            await api.patch(`/homeworks/${id}`, { completed: true });
+            setHomeworks(prev => prev.map(h => h.id === id ? { ...h, completed: true } : h));
+        } catch (err) { console.error(err); }
     };
 
     const handleJoin = async (e) => {
@@ -52,131 +59,78 @@ export default function StudentDashboard() {
         setJoining(false);
     };
 
-    const canJoinRoom = (course) => {
-        if (!course.startTime || course.dayOfWeek == null) return true;
-        const now = new Date();
-        if (now.getDay() !== course.dayOfWeek) return false;
-        const [h, m] = course.startTime.split(':').map(Number);
-        const courseTime = new Date();
-        courseTime.setHours(h, m, 0, 0);
-        const diff = (courseTime - now) / 60000; // minutes until start
-        return diff <= 10;
-    };
-
-    const nextCourse = courses
-        .filter(c => c.dayOfWeek != null && c.startTime)
-        .sort((a, b) => a.dayOfWeek - b.dayOfWeek)[0];
-
     const pendingHomeworks = homeworks.filter(h => !h.completed);
 
-    const handleLogout = () => { logout(); navigate('/'); };
-
     return (
-        <div className="min-h-screen bg-background">
-            {/* Nav */}
-            <nav className="sticky top-0 z-40 glass-strong border-b">
-                <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-                            <BookOpen className="w-5 h-5 text-white" />
-                        </div>
-                        <span className="font-bold gradient-text text-lg">MathBox</span>
+        <div className="min-h-screen bg-background p-6">
+            <div className="max-w-5xl mx-auto space-y-8">
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h1 className="text-3xl font-bold">Bonjour, {user?.name} 👋</h1>
+                        <p className="text-muted-foreground">Prêt à apprendre ?</p>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <Link to="/cloud"><Button variant="ghost" size="sm"><Cloud className="w-4 h-4 mr-1.5" />Cloud</Button></Link>
-                        <Button variant="ghost" size="sm" onClick={handleLogout}><LogOut className="w-4 h-4 mr-1.5" />Déconnexion</Button>
+                    <div className="flex gap-2">
+                        <Link to="/shop">
+                            <Button variant="glow" size="sm">
+                                <BookOpen className="w-4 h-4 mr-2" /> Boutique
+                            </Button>
+                        </Link>
                     </div>
                 </div>
-            </nav>
 
-            <main className="max-w-5xl mx-auto px-6 py-8 space-y-8">
-                {/* Welcome */}
-                <div>
-                    <h1 className="text-3xl font-bold mb-1">
-                        Salut, <span className="gradient-text">{user?.name?.split(' ')[0]}</span> 👋
-                    </h1>
-                    <p className="text-muted-foreground">
-                        {nextCourse
-                            ? `Ton prochain cours : ${nextCourse.title} — ${DAYS[nextCourse.dayOfWeek]} ${nextCourse.startTime}`
-                            : "Aucun cours à venir pour le moment"}
-                    </p>
-                </div>
-
-                {/* Timeline + Homework */}
-                <div className="grid md:grid-cols-2 gap-6">
-                    {/* Upcoming courses timeline */}
-                    <Card>
-                        <CardHeader className="pb-3">
-                            <CardTitle className="text-base flex items-center gap-2">
-                                <CalendarDays className="w-4 h-4 text-primary" />
-                                Prochains cours
-                            </CardTitle>
+                <div className="grid md:grid-cols-3 gap-6">
+                    {/* Stats / Next Class could go here, but using placeholder layout from before */}
+                    <Card className="col-span-2">
+                        <CardHeader>
+                            <CardTitle>Devoirs à faire</CardTitle>
                         </CardHeader>
-                        <CardContent className="space-y-3">
-                            {courses.length === 0 ? (
-                                <p className="text-sm text-muted-foreground py-4 text-center">Aucun cours. Ajoute un cours avec un code !</p>
+                        <CardContent>
+                            {pendingHomeworks.length === 0 ? (
+                                <p className="text-sm text-muted-foreground py-4 text-center">Aucun devoir en cours 🎉</p>
                             ) : (
-                                courses.slice(0, 5).map((course) => (
-                                    <div key={course.id} className="flex items-center justify-between p-3 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                                                <BookOpen className="w-5 h-5 text-primary" />
-                                            </div>
-                                            <div>
-                                                <p className="text-sm font-medium">{course.title}</p>
-                                                <p className="text-xs text-muted-foreground">
-                                                    {course.professor?.name} • {course.dayOfWeek != null ? DAYS[course.dayOfWeek] : ''} {course.startTime || ''}
-                                                </p>
+                                <div className="space-y-3">
+                                    {pendingHomeworks.slice(0, 5).map((hw) => (
+                                        <div key={hw.id} className="p-3 rounded-lg bg-secondary/30 flex gap-3">
+                                            <button onClick={() => markAsDone(hw.id)} className="mt-1 w-5 h-5 rounded border border-gray-400 hover:bg-primary hover:border-primary flex items-center justify-center transition-colors group" title="Marquer comme fait">
+                                                <CheckSquare className="w-3 h-3 text-transparent group-hover:text-white" />
+                                            </button>
+                                            <div className="flex-1">
+                                                <div className="flex items-start justify-between">
+                                                    <div>
+                                                        <p className="text-sm font-medium">{hw.title}</p>
+                                                        <p className="text-xs text-muted-foreground mt-1">{hw.course?.title}</p>
+                                                    </div>
+                                                    {hw.dueDate && (
+                                                        <Badge variant="warning" className="text-xs">
+                                                            <Clock className="w-3 h-3 mr-1" />
+                                                            {new Date(hw.dueDate).toLocaleDateString('fr-FR')}
+                                                        </Badge>
+                                                    )}
+                                                </div>
+                                                {hw.description && (
+                                                    <p className="text-xs text-muted-foreground mt-2">{hw.description}</p>
+                                                )}
                                             </div>
                                         </div>
-                                        <Link to={`/room/${course.code}`}>
-                                            <Button
-                                                variant={canJoinRoom(course) ? 'glow' : 'secondary'}
-                                                size="sm"
-                                                disabled={!canJoinRoom(course)}
-                                            >
-                                                <Video className="w-3.5 h-3.5 mr-1" />
-                                                {canJoinRoom(course) ? 'Rejoindre' : 'Bientôt'}
-                                            </Button>
-                                        </Link>
-                                    </div>
-                                ))
+                                    ))}
+                                </div>
                             )}
                         </CardContent>
                     </Card>
 
-                    {/* Homework */}
+                    {/* Quick Info or whatever was there */}
                     <Card>
-                        <CardHeader className="pb-3">
-                            <CardTitle className="text-base flex items-center gap-2">
-                                <CheckSquare className="w-4 h-4 text-amber-400" />
-                                Devoirs ({pendingHomeworks.length})
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                            {pendingHomeworks.length === 0 ? (
-                                <p className="text-sm text-muted-foreground py-4 text-center">Aucun devoir en cours 🎉</p>
-                            ) : (
-                                pendingHomeworks.slice(0, 5).map((hw) => (
-                                    <div key={hw.id} className="p-3 rounded-lg bg-secondary/30">
-                                        <div className="flex items-start justify-between">
-                                            <div>
-                                                <p className="text-sm font-medium">{hw.title}</p>
-                                                <p className="text-xs text-muted-foreground mt-1">{hw.course?.title}</p>
-                                            </div>
-                                            {hw.dueDate && (
-                                                <Badge variant="warning" className="text-xs">
-                                                    <Clock className="w-3 h-3 mr-1" />
-                                                    {new Date(hw.dueDate).toLocaleDateString('fr-FR')}
-                                                </Badge>
-                                            )}
-                                        </div>
-                                        {hw.description && (
-                                            <p className="text-xs text-muted-foreground mt-2">{hw.description}</p>
-                                        )}
-                                    </div>
-                                ))
-                            )}
+                        <CardHeader><CardTitle>Mon espace</CardTitle></CardHeader>
+                        <CardContent className="space-y-2">
+                            <Link to="/cloud">
+                                <Button variant="outline" className="w-full justify-start">
+                                    <Cloud className="w-4 h-4 mr-2" /> Mes fichiers
+                                </Button>
+                            </Link>
+                            <Button variant="ghost" className="w-full justify-start text-red-400 hover:text-red-500 hover:bg-red-50" onClick={logout}>
+                                <LogOut className="w-4 h-4 mr-2" /> Déconnexion
+                            </Button>
                         </CardContent>
                     </Card>
                 </div>
@@ -256,7 +210,7 @@ export default function StudentDashboard() {
                         </div>
                     )}
                 </div>
-            </main>
+            </div>
         </div>
     );
 }

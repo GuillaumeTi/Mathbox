@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
@@ -14,8 +15,10 @@ import {
     ArrowLeft, Video, VideoOff, Mic, MicOff, PenTool,
     Eraser, Type, Square, Circle, Minus, Triangle, Camera, Trash2,
     Lock, Unlock, MessageSquare, Send, X, Grid3X3,
-    Monitor, MonitorOff, ImagePlus, Cloud, Folder, ChevronRight, File, Paperclip, Download
+    Monitor, MonitorOff, ImagePlus, Cloud, Folder, ChevronRight, File, Paperclip, Download, BookOpen
 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 const COLORS = ['#000000', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6'];
 
@@ -52,6 +55,18 @@ const TOOLS = [
     { id: 'image', icon: ImagePlus, label: 'Image' },
 ];
 
+class ErrorBoundary extends React.Component {
+    constructor(props) { super(props); this.state = { hasError: false, error: null }; }
+    static getDerivedStateFromError(error) { return { hasError: true, error }; }
+    componentDidCatch(error, errorInfo) { console.error("RoomContent Error:", error, errorInfo); }
+    render() {
+        if (this.state.hasError) {
+            return <div className="p-4 text-red-500 bg-red-100 rounded m-4"><h2>Something went wrong in RoomContent.</h2><pre>{this.state.error?.toString()}</pre></div>;
+        }
+        return this.props.children;
+    }
+}
+
 export default function Room() {
     const { courseCode } = useParams();
     const { user } = useAuthStore();
@@ -83,13 +98,15 @@ export default function Room() {
             data-lk-theme="default"
         >
             <RoomAudioRenderer />
-            <RoomContent
-                courseCode={courseCode}
-                sessionId={connectionInfo.sessionId}
-                courseId={connectionInfo.courseId}
-                user={user}
-                onLeave={() => navigate(user.role === 'PROF' ? '/dashboard' : '/student')}
-            />
+            <ErrorBoundary>
+                <RoomContent
+                    courseCode={courseCode}
+                    sessionId={connectionInfo.sessionId}
+                    courseId={connectionInfo.courseId}
+                    user={user}
+                    onLeave={() => navigate(user.role === 'PROF' ? '/dashboard' : '/student')}
+                />
+            </ErrorBoundary>
         </LiveKitRoom>
     );
 }
@@ -226,9 +243,11 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
                     )}
                     <Button variant={chatOpen ? 'default' : 'ghost'} size="sm" onClick={() => setChatOpen(!chatOpen)}><MessageSquare className="w-4 h-4 mr-1" /> Chat</Button>
                     <ScreenshotButton sessionId={sessionId} courseId={courseId} />
+                    {isProf && <HomeworkButton courseId={courseId} />}
                 </div>
             </div>
             <div className="flex-1 flex overflow-hidden relative">
+
                 {!showBoard && (
                     <div className="flex-1 relative bg-black">
                         {remoteVideoTrack ? <VideoTrack trackRef={remoteVideoTrack} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><p className="text-muted-foreground">En attente...</p></div>}
@@ -636,6 +655,62 @@ function ScreenshotButton({ sessionId, courseId }) {
                         <div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => setShowModal(false)}>Annuler</Button><Button onClick={confirmSave} disabled={saving}>{saving ? 'Enregistrement...' : 'Enregistrer'}</Button></div>
                     </div>
                 </div>
+            )}
+        </>
+    );
+}
+
+function HomeworkButton({ courseId }) {
+    const [showModal, setShowModal] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [form, setForm] = useState({ title: '', description: '', dueDate: '' });
+
+    const handleSubmit = async () => {
+        if (!form.title) return;
+        setLoading(true);
+        try {
+            await api.post('/homeworks', { ...form, courseId });
+            setShowModal(false);
+            setForm({ title: '', description: '', dueDate: '' });
+            alert('Devoirs assignés avec succès !');
+        } catch (err) {
+            console.error(err);
+            alert('Erreur lors de l\'assignation.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <>
+            <Button variant="ghost" size="sm" onClick={() => setShowModal(true)}>
+                <BookOpen className="w-4 h-4 mr-1" /> Devoirs
+            </Button>
+            {showModal && createPortal(
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm">
+                    <div className="bg-background rounded-xl border p-6 w-96 shadow-2xl space-y-4 animate-in fade-in zoom-in duration-200">
+                        <h3 className="text-lg font-semibold">Assigner des Devoirs</h3>
+                        <div className="space-y-3">
+                            <div>
+                                <Label>Titre</Label>
+                                <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Ex: Exercices page 42" autoFocus />
+                            </div>
+                            <div>
+                                <Label>Description</Label>
+                                <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 min-h-[80px]" placeholder="Détails..." />
+                            </div>
+                            <div>
+                                <Label>Date limite</Label>
+                                <Input type="date" value={form.dueDate} onChange={e => setForm({ ...form, dueDate: e.target.value })} />
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-2 pt-2">
+                            <Button variant="ghost" onClick={() => setShowModal(false)}>Annuler</Button>
+                            <Button onClick={handleSubmit} disabled={loading}>{loading ? 'Envoi...' : 'Assigner'}</Button>
+                        </div>
+                    </div>
+                </div>,
+                document.body
             )}
         </>
     );

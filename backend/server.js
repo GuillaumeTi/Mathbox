@@ -31,8 +31,8 @@ app.use('/api/courses', require('./routes/courses'));
 app.use('/api/room', require('./routes/room'));
 app.use('/api/documents', require('./routes/documents'));
 app.use('/api/folders', require('./routes/folders'));
+app.use('/api/homeworks', require('./routes/homeworks'));
 app.use('/api/webhooks', require('./routes/webhooks'));
-app.use('/api/homework', require('./routes/homework'));
 app.use('/api/shop', require('./routes/shop'));
 
 // ============ SOCKET.IO ============

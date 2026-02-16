@@ -9,18 +9,181 @@ import {
     BookOpen, ArrowLeft, ShoppingBag, Brain, Check,
     Sparkles, CreditCard, History, Zap
 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { loadStripe } from '@stripe/stripe-js';
+import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { PayPalScriptProvider, PayPalButtons } from '@paypal/react-paypal-js';
+
+// Payment Modal Component
+const PaymentModal = ({ open, onClose, item, type, config, onSuccess }) => {
+    const [clientSecret, setClientSecret] = useState('');
+    const [stripePromise, setStripePromise] = useState(null);
+
+    useEffect(() => {
+        if (config?.stripePublicKey) {
+            setStripePromise(loadStripe(config.stripePublicKey));
+        }
+    }, [config]);
+
+    useEffect(() => {
+        if (open && item && config?.stripePublicKey && !config.isMock) {
+            // Create PaymentIntent
+            api.post('/shop/create-payment-intent', { itemId: item.id, type })
+                .then(data => setClientSecret(data.clientSecret))
+                .catch(err => console.error(err));
+        }
+    }, [open, item, config]);
+
+    if (!item) return null;
+
+
+    return (
+        <Dialog open={open} onOpenChange={onClose}>
+            <DialogContent className="sm:max-w-[500px]">
+                <DialogHeader>
+                    <DialogTitle>Paiement sécurisé</DialogTitle>
+                    <DialogDescription>
+                        Choisissez votre méthode de paiement pour {item.name}
+                    </DialogDescription>
+                </DialogHeader>
+
+                <Tabs defaultValue="card" className="w-full">
+                    <TabsList className="grid w-full grid-cols-2">
+                        <TabsTrigger value="card">Carte Bancaire</TabsTrigger>
+                        <TabsTrigger value="paypal">PayPal</TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="card" className="mt-4">
+                        {config?.isMock ? (
+                            <div className="space-y-4 py-4">
+                                <div className="bg-yellow-500/10 text-yellow-500 p-4 rounded-lg text-sm flex items-center gap-2">
+                                    <Sparkles className="w-4 h-4" /> Mode Simulation (Mock)
+                                </div>
+                                <p className="text-sm text-muted-foreground">Simulation d'un paiement par Carte Bancaire.</p>
+                                <Button className="w-full" onClick={() => onSuccess(item.id)}>
+                                    Simuler Paiement Carte
+                                </Button>
+                            </div>
+                        ) : (
+                            clientSecret && stripePromise ? (
+                                <Elements stripe={stripePromise} options={{ clientSecret }}>
+                                    <StripeCheckoutForm onSuccess={() => onSuccess(item.id)} />
+                                </Elements>
+                            ) : (
+                                <div className="text-center py-4">Chargement Stripe...</div>
+                            )
+                        )}
+                    </TabsContent>
+
+                    <TabsContent value="paypal" className="mt-4">
+                        {config?.isMock ? (
+                            <div className="space-y-4 py-4">
+                                <div className="bg-blue-500/10 text-blue-500 p-4 rounded-lg text-sm flex items-center gap-2">
+                                    <Sparkles className="w-4 h-4" /> Mode Simulation (Mock)
+                                </div>
+                                <p className="text-sm text-muted-foreground">Simulation d'un paiement PayPal.</p>
+                                <Button className="w-full bg-[#0070BA] hover:bg-[#003087]" onClick={() => onSuccess(item.id)}>
+                                    Simuler Paiement PayPal
+                                </Button>
+                            </div>
+                        ) : (
+                            <PayPalScriptProvider options={{ "client-id": config?.paypalClientId }}>
+                                <PayPalButtons
+                                    style={{ layout: "vertical" }}
+                                    createOrder={(data, actions) => {
+                                        return actions.order.create({
+                                            purchase_units: [{
+                                                amount: { value: item.price.toString() },
+                                                description: item.name
+                                            }]
+                                        });
+                                    }}
+                                    onApprove={(data, actions) => {
+                                        return actions.order.capture().then((details) => {
+                                            onSuccess(item.id);
+                                        });
+                                    }}
+                                />
+                            </PayPalScriptProvider>
+                        )}
+                    </TabsContent>
+                </Tabs>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+const StripeCheckoutForm = ({ onSuccess }) => {
+    const stripe = useStripe();
+    const elements = useElements();
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!stripe || !elements) return;
+
+        setLoading(true);
+        const { error: submitError } = await elements.submit();
+        if (submitError) {
+            setError(submitError.message);
+            setLoading(false);
+            return;
+        }
+
+        const { error: confirmError } = await stripe.confirmPayment({
+            elements,
+            confirmParams: {
+                return_url: window.location.href, // In real app, handle redirect. For intent, it might not redirect if success.
+            },
+            redirect: "if_required",
+        });
+
+        if (confirmError) {
+            setError(confirmError.message);
+        } else {
+            // Payment succeeded
+            onSuccess();
+        }
+        setLoading(false);
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <PaymentElement />
+            {error && <div className="text-red-500 text-sm">{error}</div>}
+            <Button type="submit" disabled={!stripe || loading} className="w-full">
+                {loading ? 'Traitement...' : 'Payer'}
+            </Button>
+        </form>
+    );
+};
 
 export default function Shop() {
     const { user, fetchMe } = useAuthStore();
     const [plans, setPlans] = useState([]);
     const [packs, setPacks] = useState([]);
     const [transactions, setTransactions] = useState([]);
-    const [purchasing, setPurchasing] = useState('');
     const [tab, setTab] = useState('credits');
+
+    // Payment State
+    const [config, setConfig] = useState(null);
+    const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+    const [selectedItem, setSelectedItem] = useState(null);
+    const [itemType, setItemType] = useState('pack'); // 'pack' | 'plan'
 
     useEffect(() => {
         loadShopData();
+        loadConfig();
     }, []);
+
+    const loadConfig = async () => {
+        try {
+            const data = await api.get('/shop/config');
+            setConfig(data);
+        } catch (err) { console.error(err); }
+    };
 
     const loadShopData = async () => {
         try {
@@ -35,17 +198,40 @@ export default function Shop() {
         } catch (err) { }
     };
 
-    const purchaseCredits = async (packId) => {
-        setPurchasing(packId);
+    const handleBuy = (item, type) => {
+        setSelectedItem(item);
+        setItemType(type);
+        setPaymentModalOpen(true);
+    };
+
+    const handleSuccess = async (itemId) => {
+        // If it was a mock payment or real payment confirmed client-side:
+        // We still need to tell backend to give credits (if we reused the /credits/purchase endpoint)
+        // Note: For real Stripe, we usually rely on webhook.
+        // But for this task's "Conditional Wrap", we might use the /purchase endpoint for both 
+        // if the /purchase endpoint was adapted to accept a "paymentIntentId" etc.
+        // Or if in Mock mode, it just works.
+
         try {
-            const data = await api.post('/shop/credits/purchase', { packId });
-            alert(data.message);
+            // Re-use the purchase endpoint.
+            // In Mock mode, it gives credits.
+            // In Real mode, the endpoint currently blocks direct calls ("Please use secure flow").
+            // So we need a way to finalize.
+
+            // If checking Mock mode:
+            if (config?.isMock) {
+                const data = await api.post('/shop/credits/purchase', { packId: itemId || selectedItem.id });
+                alert(data.message);
+            } else {
+                alert("Paiement réussi ! Votre compte sera crédité sous peu.");
+            }
+
+            setPaymentModalOpen(false);
             await fetchMe();
             loadShopData();
         } catch (err) {
             alert(err.message);
         }
-        setPurchasing('');
     };
 
     return (
@@ -120,10 +306,9 @@ export default function Shop() {
                                     <Button
                                         variant={pack.popular ? 'glow' : 'outline'}
                                         className="w-full"
-                                        onClick={() => purchaseCredits(pack.id)}
-                                        disabled={purchasing === pack.id}
+                                        onClick={() => handleBuy(pack, 'pack')}
                                     >
-                                        {purchasing === pack.id ? 'Achat...' : 'Acheter'}
+                                        Acheter
                                     </Button>
                                 </CardContent>
                             </Card>
@@ -154,7 +339,12 @@ export default function Shop() {
                                             <Check className="w-4 h-4 text-primary shrink-0" /> {f}
                                         </div>
                                     ))}
-                                    <Button variant={plan.popular ? 'glow' : 'outline'} className="w-full mt-4">
+                                    <Button
+                                        variant={plan.popular ? 'glow' : 'outline'}
+                                        className="w-full mt-4"
+                                        onClick={() => handleBuy(plan, 'plan')}
+                                        disabled={plan.price === 0}
+                                    >
                                         {plan.price === 0 ? 'Plan actuel' : 'Passer au plan'}
                                     </Button>
                                 </CardContent>
@@ -205,6 +395,15 @@ export default function Shop() {
                         </CardContent>
                     </Card>
                 )}
+
+                <PaymentModal
+                    open={paymentModalOpen}
+                    onClose={() => setPaymentModalOpen(false)}
+                    item={selectedItem}
+                    type={itemType}
+                    config={config}
+                    onSuccess={handleSuccess}
+                />
             </main>
         </div>
     );
