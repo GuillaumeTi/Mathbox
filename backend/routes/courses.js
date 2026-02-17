@@ -207,16 +207,76 @@ router.put('/:id', authMiddleware, async (req, res) => {
 // DELETE /api/courses/:id
 router.delete('/:id', authMiddleware, async (req, res) => {
     try {
+        const { id } = req.params;
+        const { keepFiles } = req.query; // 'true' or 'false'
+        const shouldKeepFiles = keepFiles !== 'false'; // Default to true (Safe)
+
         const course = await prisma.course.findFirst({
-            where: { id: req.params.id, professorId: req.user.id },
+            where: { id, professorId: req.user.id },
+            include: { student: true }
         });
 
         if (!course) {
             return res.status(404).json({ error: 'Course not found or access denied' });
         }
 
-        await prisma.course.delete({ where: { id: req.params.id } });
-        res.json({ success: true });
+        // 1. Handle Files & Folders
+        const { deleteFile } = require('../services/storageService');
+        const { v4: uuidv4 } = require('uuid');
+
+        if (shouldKeepFiles) {
+            // SAFE DELETE: Rename root folder to [ARCHIVED]
+            const rootFolder = await prisma.folder.findFirst({
+                where: { courseId: id, parentId: null }
+            });
+
+            if (rootFolder) {
+                const uniqueSuffix = uuidv4().substring(0, 8);
+                const archivedName = `[ARCHIVED] ${course.title} (${uniqueSuffix})`;
+                console.log(`[Safe Delete] Renaming folder ${rootFolder.id} to ${archivedName}`);
+
+                await prisma.folder.update({
+                    where: { id: rootFolder.id },
+                    data: { name: archivedName }
+                });
+            }
+            // Course linking will be removed by SetNull on delete
+        } else {
+            // DESTRUCTIVE DELETE: Remove files and folders
+            console.log(`[Destructive Delete] Cleaning up files for course ${id}`);
+
+            // A. Delete Physical Files & Document Records
+            const documents = await prisma.document.findMany({
+                where: { courseId: id }
+            });
+
+            for (const doc of documents) {
+                if (doc.url.startsWith('/uploads/')) {
+                    const filePath = doc.url.replace('/uploads/', '');
+                    await deleteFile(filePath);
+                }
+            }
+
+            await prisma.document.deleteMany({ where: { courseId: id } });
+
+            // B. Delete Folders (Cascade handles children)
+            // We verify root folder exists
+            const rootFolder = await prisma.folder.findFirst({
+                where: { courseId: id, parentId: null }
+            });
+
+            if (rootFolder) {
+                await prisma.folder.delete({ where: { id: rootFolder.id } });
+            }
+
+            // Clean up any stray folders linked to course (should be none if tree is intact)
+            await prisma.folder.deleteMany({ where: { courseId: id } });
+        }
+
+        // 2. Delete Course
+        await prisma.course.delete({ where: { id } });
+
+        res.json({ success: true, keptFiles: shouldKeepFiles });
     } catch (error) {
         console.error('[Courses] Delete error:', error);
         res.status(500).json({ error: 'Failed to delete course' });
