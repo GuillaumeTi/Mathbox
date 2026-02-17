@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { useCoursesStore } from '@/stores/coursesStore';
@@ -11,9 +11,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import {
     BookOpen, Plus, Video, Clock, Users, Brain, Bell,
     Copy, Trash2, LogOut, ShoppingBag, Cloud, ChevronRight,
-    Calendar, BarChart3
+    Calendar, BarChart3, ChevronDown, ChevronUp, MoreVertical, Edit, XCircle, RotateCcw, CheckSquare, Square
 } from 'lucide-react';
 import { io } from 'socket.io-client';
+import { api } from '@/lib/api';
+import HomeworkModal from '@/components/HomeworkModal';
 
 const DAYS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 
@@ -40,15 +42,168 @@ function StatusLabel({ status }) {
     return <Badge variant={variants[status] || 'secondary'}>{labels[status] || 'Hors Ligne'}</Badge>;
 }
 
+function ActionMenu({ course, onEdit, onCancel, onDelete }) {
+    const [isOpen, setIsOpen] = useState(false);
+    const menuRef = useRef(null);
+
+    useEffect(() => {
+        function handleClickOutside(event) {
+            if (menuRef.current && !menuRef.current.contains(event.target)) {
+                setIsOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, [menuRef]);
+
+    return (
+        <div className="relative inline-block text-left" ref={menuRef}>
+            <Button variant="ghost" size="icon" onClick={() => setIsOpen(!isOpen)}>
+                <MoreVertical className="w-4 h-4" />
+            </Button>
+            {isOpen && (
+                <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-popover ring-1 ring-black ring-opacity-5 z-50">
+                    <div className="py-1" role="menu">
+                        <button
+                            className="flex w-full items-center px-4 py-2 text-sm text-popover-foreground hover:bg-accent hover:text-accent-foreground"
+                            onClick={() => { setIsOpen(false); onEdit(course); }}
+                        >
+                            <Edit className="mr-2 h-4 w-4" /> Modifier
+                        </button>
+                        <button
+                            className="flex w-full items-center px-4 py-2 text-sm text-popover-foreground hover:bg-accent hover:text-accent-foreground"
+                            onClick={() => { setIsOpen(false); onCancel(course); }}
+                        >
+                            {course.status === 'CANCELLED' ? (
+                                <>
+                                    <RotateCcw className="mr-2 h-4 w-4 text-emerald-500" /> Réactiver
+                                </>
+                            ) : (
+                                <>
+                                    <XCircle className="mr-2 h-4 w-4 text-orange-500" /> Annuler
+                                </>
+                            )}
+                        </button>
+                        <button
+                            className="flex w-full items-center px-4 py-2 text-sm text-red-600 hover:bg-red-50 hover:text-red-700"
+                            onClick={() => { setIsOpen(false); onDelete(course.id); }}
+                        >
+                            <Trash2 className="mr-2 h-4 w-4" /> Supprimer
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function ProfDashboard() {
     const { user, logout } = useAuthStore();
     const { courses, fetchCourses, createCourse, deleteCourse, roomStatuses, fetchRoomStatuses, updateRoomStatus } = useCoursesStore();
     const navigate = useNavigate();
+
+    // Create/Edit State
     const [showCreate, setShowCreate] = useState(false);
     const [newCourse, setNewCourse] = useState({ title: '', subject: '', level: '', recurrence: 'WEEKLY', dayOfWeek: 1, startTime: '14:00', duration: 60 });
+    const [isEditing, setIsEditing] = useState(false);
+    const [courseToEdit, setCourseToEdit] = useState(null);
+
     const [creating, setCreating] = useState(false);
     const [createdCode, setCreatedCode] = useState('');
     const [copiedCode, setCopiedCode] = useState(false);
+
+    // Expansion State
+    const [expandedCourseId, setExpandedCourseId] = useState(null);
+    const [courseHomeworks, setCourseHomeworks] = useState({});
+    const [loadingHomeworks, setLoadingHomeworks] = useState(false);
+    const [showHomeworkModal, setShowHomeworkModal] = useState(false);
+    const [selectedCourseId, setSelectedCourseId] = useState(null);
+
+    // Handlers
+    const toggleExpand = async (courseId) => {
+        if (expandedCourseId === courseId) {
+            setExpandedCourseId(null);
+            return;
+        }
+        setExpandedCourseId(courseId);
+        if (!courseHomeworks[courseId]) {
+            setLoadingHomeworks(true);
+            try {
+                const data = await api.get(`/homeworks?courseId=${courseId}`);
+                setCourseHomeworks(prev => ({ ...prev, [courseId]: data.homeworks || [] }));
+            } catch (err) {
+                console.error("Failed to load homeworks", err);
+            } finally {
+                setLoadingHomeworks(false);
+            }
+        }
+    };
+
+    const handleEdit = (course) => {
+        setCourseToEdit(course);
+        setNewCourse({ ...course });
+        setIsEditing(true);
+        setShowCreate(true);
+    };
+
+    const handleSaveEdit = async (e) => {
+        e.preventDefault();
+        setCreating(true);
+        try {
+            await api.put(`/courses/${courseToEdit.id}`, newCourse);
+            await fetchCourses();
+            setShowCreate(false);
+            setIsEditing(false);
+            setCourseToEdit(null);
+            // Reset for create mode
+            setNewCourse({ title: '', subject: '', level: '', recurrence: 'WEEKLY', dayOfWeek: 1, startTime: '14:00', duration: 60 });
+        } catch (err) {
+            alert("Erreur lors de la modification: " + err.message);
+        }
+        setCreating(false);
+    };
+
+    const handleCancel = async (course) => {
+        const newStatus = course.status === 'CANCELLED' ? 'SCHEDULED' : 'CANCELLED';
+        if (!confirm(`Voulez-vous ${newStatus === 'CANCELLED' ? 'annuler' : 'réactiver'} ce cours ?`)) return;
+        try {
+            await api.put(`/courses/${course.id}`, { status: newStatus });
+            await fetchCourses();
+        } catch (err) {
+            alert("Erreur: " + err.message);
+        }
+    };
+
+    const handleDelete = async (courseId) => {
+        if (!confirm("Êtes-vous sûr de vouloir supprimer ce cours ? Cette action est irréversible.")) return;
+        try {
+            await deleteCourse(courseId);
+        } catch (err) {
+            alert(err.message);
+        }
+    };
+
+    const handleDeleteHomework = async (courseId, homeworkId) => {
+        if (!confirm("Supprimer ce devoir ?")) return;
+
+        // Optimistic update
+        const previousHomeworks = { ...courseHomeworks };
+        setCourseHomeworks(prev => ({
+            ...prev,
+            [courseId]: prev[courseId].filter(h => h.id !== homeworkId)
+        }));
+
+        try {
+            await api.delete(`/homeworks/${homeworkId}`);
+        } catch (err) {
+            console.error("Failed to delete homework", err);
+            // Revert on failure
+            setCourseHomeworks(previousHomeworks);
+            alert("Erreur lors de la suppression du devoir.");
+        }
+    };
 
     useEffect(() => {
         fetchCourses();
@@ -183,7 +338,15 @@ export default function ProfDashboard() {
                             Mes Cours
                         </h2>
 
-                        <Dialog open={showCreate} onOpenChange={(o) => { setShowCreate(o); if (!o) { setCreatedCode(''); setNewCourse({ title: '', subject: '', level: '', recurrence: 'WEEKLY', dayOfWeek: 1, startTime: '14:00', duration: 60 }); } }}>
+                        <Dialog open={showCreate} onOpenChange={(o) => {
+                            setShowCreate(o);
+                            if (!o) {
+                                setCreatedCode('');
+                                setIsEditing(false);
+                                setCourseToEdit(null);
+                                setNewCourse({ title: '', subject: '', level: '', recurrence: 'WEEKLY', dayOfWeek: 1, startTime: '14:00', duration: 60 });
+                            }
+                        }}>
                             <DialogTrigger asChild>
                                 <Button variant="glow" size="sm">
                                     <Plus className="w-4 h-4 mr-1.5" />
@@ -192,7 +355,9 @@ export default function ProfDashboard() {
                             </DialogTrigger>
                             <DialogContent>
                                 <DialogHeader>
-                                    <DialogTitle>{createdCode ? '✅ Cours créé !' : 'Nouveau Cours'}</DialogTitle>
+                                    <DialogTitle>
+                                        {isEditing ? 'Modifier le cours' : (createdCode ? '✅ Cours créé !' : 'Nouveau Cours')}
+                                    </DialogTitle>
                                 </DialogHeader>
 
                                 {createdCode ? (
@@ -210,7 +375,7 @@ export default function ProfDashboard() {
                                         </Button>
                                     </div>
                                 ) : (
-                                    <form onSubmit={handleCreate} className="space-y-4">
+                                    <form onSubmit={isEditing ? handleSaveEdit : handleCreate} className="space-y-4">
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="space-y-2 col-span-2">
                                                 <Label>Titre du cours</Label>
@@ -256,7 +421,7 @@ export default function ProfDashboard() {
                                             </div>
                                         </div>
                                         <Button type="submit" variant="glow" className="w-full" disabled={creating}>
-                                            {creating ? 'Création...' : 'Créer le cours'}
+                                            {creating ? 'Enregistrement...' : (isEditing ? 'Enregistrer les modifications' : 'Créer le cours')}
                                         </Button>
                                     </form>
                                 )}
@@ -275,58 +440,129 @@ export default function ProfDashboard() {
                             </Button>
                         </Card>
                     ) : (
-                        <div className="rounded-xl border overflow-hidden">
+                        <div className="rounded-xl border bg-card text-card-foreground shadow-sm">
                             <table className="w-full">
                                 <thead>
                                     <tr className="border-b bg-secondary/30">
+                                        <th className="w-10 p-4"></th>
                                         <th className="text-left p-4 text-sm font-medium text-muted-foreground">Élève</th>
                                         <th className="text-left p-4 text-sm font-medium text-muted-foreground">Matière</th>
                                         <th className="text-left p-4 text-sm font-medium text-muted-foreground">Niveau</th>
                                         <th className="text-left p-4 text-sm font-medium text-muted-foreground">Jour / Heure</th>
                                         <th className="text-center p-4 text-sm font-medium text-muted-foreground">Statut</th>
-                                        <th className="text-left p-4 text-sm font-medium text-muted-foreground">Code</th>
+                                        <th className="text-left p-4 text-sm font-medium text-muted-foreground">Codé</th>
                                         <th className="text-right p-4 text-sm font-medium text-muted-foreground">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {courses.map((course) => {
                                         const rs = roomStatuses[course.id];
-                                        const status = rs?.status || 'OFFLINE';
+                                        // Priority: CANCELLED administrative status > Live Status > OFFLINE
+                                        const status = course.status === 'CANCELLED' ? 'CANCELLED' : (rs?.status || 'OFFLINE');
+                                        const isExpanded = expandedCourseId === course.id;
+
                                         return (
-                                            <tr key={course.id} className="border-b border-border/50 hover:bg-secondary/20 transition-colors">
-                                                <td className="p-4">
-                                                    <div className="flex items-center gap-2">
-                                                        <StatusDot status={status} />
-                                                        <span className="text-sm font-medium">
-                                                            {course.student?.name || <span className="text-muted-foreground italic">En attente...</span>}
-                                                        </span>
-                                                    </div>
-                                                </td>
-                                                <td className="p-4 text-sm">{course.subject || '—'}</td>
-                                                <td className="p-4 text-sm">{course.level || '—'}</td>
-                                                <td className="p-4 text-sm">
-                                                    {course.dayOfWeek != null ? DAYS[course.dayOfWeek] : '—'} {course.startTime || ''}
-                                                </td>
-                                                <td className="p-4 text-center"><StatusLabel status={status} /></td>
-                                                <td className="p-4">
-                                                    <code className="text-xs bg-secondary/50 px-2 py-1 rounded font-mono">{course.code}</code>
-                                                </td>
-                                                <td className="p-4">
-                                                    <div className="flex items-center justify-end gap-2">
-                                                        <Link to={`/room/${course.code}`}>
-                                                            <Button variant="outline" size="sm">
-                                                                <Video className="w-3.5 h-3.5 mr-1" />
-                                                                Entrer
-                                                            </Button>
-                                                        </Link>
-                                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-red-400" onClick={() => {
-                                                            if (confirm('Supprimer ce cours ?')) deleteCourse(course.id);
-                                                        }}>
-                                                            <Trash2 className="w-3.5 h-3.5" />
+                                            <React.Fragment key={course.id}>
+                                                <tr className={`border-b border-border/50 hover:bg-secondary/20 transition-colors ${isExpanded ? 'bg-secondary/10' : ''}`}>
+                                                    <td className="p-4">
+                                                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => toggleExpand(course.id)}>
+                                                            {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                                                         </Button>
-                                                    </div>
-                                                </td>
-                                            </tr>
+                                                    </td>
+                                                    <td className="p-4">
+                                                        <div className="flex items-center gap-2">
+                                                            <StatusDot status={status} />
+                                                            <span className="text-sm font-medium">
+                                                                {course.student?.name || <span className="text-muted-foreground italic">En attente...</span>}
+                                                            </span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-4 text-sm">{course.subject || '—'}</td>
+                                                    <td className="p-4 text-sm">{course.level || '—'}</td>
+                                                    <td className="p-4 text-sm">
+                                                        {course.dayOfWeek != null ? DAYS[course.dayOfWeek] : '—'} {course.startTime || ''}
+                                                    </td>
+                                                    <td className="p-4 text-center"><StatusLabel status={status} /></td>
+                                                    <td className="p-4">
+                                                        <code className="text-xs bg-secondary/50 px-2 py-1 rounded font-mono">{course.code}</code>
+                                                    </td>
+                                                    <td className="p-4 text-right">
+                                                        <div className="flex items-center justify-end gap-2 relative">
+                                                            {status !== 'CANCELLED' && (
+                                                                <Link to={`/room/${course.code}`}>
+                                                                    <Button variant="outline" size="sm">
+                                                                        <Video className="w-3.5 h-3.5 mr-1" />
+                                                                        Entrer
+                                                                    </Button>
+                                                                </Link>
+                                                            )}
+                                                            <ActionMenu
+                                                                course={course}
+                                                                onEdit={handleEdit}
+                                                                onCancel={handleCancel}
+                                                                onDelete={handleDelete}
+                                                            />
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                                {isExpanded && (
+                                                    <tr className="bg-secondary/5 animate-in fade-in slide-in-from-top-1 duration-200">
+                                                        <td colSpan={8} className="p-4 pl-14">
+                                                            <div className="bg-background rounded-lg border p-4">
+                                                                <div className="flex items-center justify-between mb-4">
+                                                                    <h4 className="font-semibold flex items-center gap-2">
+                                                                        <BookOpen className="w-4 h-4 text-primary" />
+                                                                        Devoirs assignés
+                                                                    </h4>
+                                                                    <Button variant="ghost" size="sm" onClick={() => { setSelectedCourseId(course.id); setShowHomeworkModal(true); }}>
+                                                                        <Plus className="w-4 h-4 mr-1" /> Ajouter un devoir
+                                                                    </Button>
+                                                                </div>
+
+                                                                {loadingHomeworks && !courseHomeworks[course.id] ? (
+                                                                    <div className="text-center py-4 text-muted-foreground">Chargement...</div>
+                                                                ) : courseHomeworks[course.id]?.length > 0 ? (
+                                                                    <ul className="space-y-2">
+                                                                        {courseHomeworks[course.id].map(hw => (
+                                                                            <li key={hw.id} className="flex items-start gap-3 p-3 rounded-md border bg-card hover:bg-accent/50 transition-colors group">
+                                                                                <div className="mt-0.5">
+                                                                                    {hw.completed ? (
+                                                                                        <CheckSquare className="w-5 h-5 text-emerald-500" />
+                                                                                    ) : (
+                                                                                        <Square className="w-5 h-5 text-muted-foreground" />
+                                                                                    )}
+                                                                                </div>
+                                                                                <div className="flex-1">
+                                                                                    <div className="flex justify-between">
+                                                                                        <span className={`${hw.completed ? 'line-through text-muted-foreground' : 'font-medium'}`}>{hw.title}</span>
+                                                                                        <div className="flex items-center gap-2">
+                                                                                            <span className="text-xs text-muted-foreground">{hw.dueDate ? new Date(hw.dueDate).toLocaleDateString() : 'Sans date'}</span>
+                                                                                            <Button
+                                                                                                variant="ghost"
+                                                                                                size="icon"
+                                                                                                className="h-6 w-6 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-500 hover:bg-red-50"
+                                                                                                onClick={() => handleDeleteHomework(course.id, hw.id)}
+                                                                                                title="Supprimer ce devoir"
+                                                                                            >
+                                                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                                                            </Button>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    {hw.description && <p className="text-sm text-muted-foreground mt-1 line-clamp-1">{hw.description}</p>}
+                                                                                </div>
+                                                                            </li>
+                                                                        ))}
+                                                                    </ul>
+                                                                ) : (
+                                                                    <div className="text-center py-6 text-muted-foreground border-2 border-dashed rounded-lg">
+                                                                        <p>Pas de devoirs en cours</p>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </React.Fragment>
                                         );
                                     })}
                                 </tbody>
@@ -335,6 +571,26 @@ export default function ProfDashboard() {
                     )}
                 </div>
             </main>
+
+            <HomeworkModal
+                courseId={selectedCourseId}
+                isOpen={showHomeworkModal}
+                onClose={() => setShowHomeworkModal(false)}
+                onSuccess={() => {
+                    // Refresh homeworks for the selected course
+                    setCourseHomeworks(prev => {
+                        const newState = { ...prev };
+                        delete newState[selectedCourseId]; // clear cache to force refetch next time or implement active fetch
+                        return newState;
+                    });
+                    // Actually improved UX: fetch immediately
+                    if (selectedCourseId) {
+                        api.get(`/homeworks?courseId=${selectedCourseId}`).then(data => {
+                            setCourseHomeworks(prev => ({ ...prev, [selectedCourseId]: data.homeworks || [] }));
+                        });
+                    }
+                }}
+            />
         </div>
     );
 }

@@ -183,30 +183,39 @@ export default function StudentDashboard() {
                         </Card>
                     ) : (
                         <div className="grid md:grid-cols-2 gap-4">
-                            {courses.map((course) => (
-                                <Card key={course.id} className="hover:border-primary/30 transition-all duration-200">
-                                    <CardContent className="p-5">
-                                        <div className="flex items-start justify-between mb-3">
-                                            <div>
-                                                <h3 className="font-semibold">{course.title}</h3>
-                                                <p className="text-sm text-muted-foreground">Prof. {course.professor?.name}</p>
+                            {courses.map((course) => {
+                                const isCancelled = course.status === 'CANCELLED';
+                                return (
+                                    <Card key={course.id} className={`transition-all duration-200 ${isCancelled ? 'opacity-75 bg-red-500/5 border-red-500/20' : 'hover:border-primary/30'}`}>
+                                        <CardContent className="p-5">
+                                            <div className="flex items-start justify-between mb-3">
+                                                <div>
+                                                    <h3 className="font-semibold">{course.title}</h3>
+                                                    <p className="text-sm text-muted-foreground">Prof. {course.professor?.name}</p>
+                                                </div>
+                                                {isCancelled ? <Badge variant="destructive">Annulé</Badge> : <Badge>{course.subject || 'Général'}</Badge>}
                                             </div>
-                                            <Badge>{course.subject || 'Général'}</Badge>
-                                        </div>
-                                        <div className="flex items-center justify-between">
-                                            <p className="text-xs text-muted-foreground flex items-center gap-1">
-                                                <Clock className="w-3 h-3" />
-                                                {course.dayOfWeek != null ? DAYS[course.dayOfWeek] : ''} {course.startTime || ''} • {course.duration}min
-                                            </p>
-                                            <Link to={`/room/${course.code}`}>
-                                                <Button variant="outline" size="sm">
-                                                    <Video className="w-3.5 h-3.5 mr-1" /> Entrer
-                                                </Button>
-                                            </Link>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            ))}
+                                            <div className="flex items-center justify-between">
+                                                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                                    <Clock className="w-3 h-3" />
+                                                    {course.dayOfWeek != null ? DAYS[course.dayOfWeek] : ''} {course.startTime || ''} • {course.duration}min
+                                                </p>
+                                                {isCancelled ? (
+                                                    <Button variant="ghost" size="sm" disabled className="text-red-400 cursor-not-allowed">
+                                                        <AlertCircle className="w-3.5 h-3.5 mr-1" /> Annulé
+                                                    </Button>
+                                                ) : (
+                                                    <Link to={`/room/${course.code}`}>
+                                                        <Button variant="outline" size="sm">
+                                                            <Video className="w-3.5 h-3.5 mr-1" /> Entrer
+                                                        </Button>
+                                                    </Link>
+                                                )}
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                );
+                            })}
                         </div>
                     )}
                 </div>
