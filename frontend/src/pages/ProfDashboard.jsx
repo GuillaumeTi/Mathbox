@@ -64,7 +64,7 @@ function ActionMenu({ course, onEdit, onCancel, onDelete }) {
                 <MoreVertical className="w-4 h-4" />
             </Button>
             {isOpen && (
-                <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white border border-gray-200 ring-1 ring-black ring-opacity-5 z-50">
+                <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-card border border-border ring-1 ring-black ring-opacity-5 z-50">
                     <div className="py-1" role="menu">
                         <button
                             className="flex w-full items-center px-4 py-2 text-sm text-popover-foreground hover:bg-accent hover:text-accent-foreground"
