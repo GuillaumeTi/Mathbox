@@ -180,6 +180,7 @@ export default function ProfDashboard() {
     };
 
     const handleDelete = (courseId) => {
+        console.log("Delete requested for:", courseId);
         setCourseToDelete(courseId);
     };
 
@@ -604,49 +605,51 @@ export default function ProfDashboard() {
             />
 
             {/* Delete Confirmation Dialog */}
-            <Dialog open={!!courseToDelete} onOpenChange={(open) => !open && setCourseToDelete(null)}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Supprimer le cours définitivement ?</DialogTitle>
-                        <DialogDescription>
-                            Cette action est irréversible. Le cours sera retiré de votre tableau de bord et de celui des élèves.
-                        </DialogDescription>
-                    </DialogHeader>
+            {courseToDelete && (
+                <Dialog open={true} onOpenChange={(open) => !open && setCourseToDelete(null)}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Supprimer le cours définitivement ?</DialogTitle>
+                            <DialogDescription>
+                                Cette action est irréversible. Le cours sera retiré de votre tableau de bord et de celui des élèves.
+                            </DialogDescription>
+                        </DialogHeader>
 
-                    <div className="py-2">
-                        <p className="mb-4 text-sm font-medium">Voulez-vous conserver les fichiers associés ?</p>
-                        <div className="flex flex-col gap-3">
-                            <Button
-                                variant="outline"
-                                onClick={() => handleConfirmDelete(true)}
-                                className="justify-start h-auto py-3 px-4 border-primary/20 hover:bg-primary/5 hover:text-primary"
-                            >
-                                <Archive className="mr-3 h-5 w-5 text-primary" />
-                                <div className="text-left">
-                                    <div className="font-semibold">Oui, conserver les fichiers</div>
-                                    <div className="text-xs text-muted-foreground font-normal">
-                                        Le dossier sera rénommé en "[ARCHIVED]..." dans votre espace personnel.
+                        <div className="py-2">
+                            <p className="mb-4 text-sm font-medium">Voulez-vous conserver les fichiers associés ?</p>
+                            <div className="flex flex-col gap-3">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => handleConfirmDelete(true)}
+                                    className="justify-start h-auto py-3 px-4 border-primary/20 hover:bg-primary/5 hover:text-primary"
+                                >
+                                    <Archive className="mr-3 h-5 w-5 text-primary" />
+                                    <div className="text-left">
+                                        <div className="font-semibold">Oui, conserver les fichiers</div>
+                                        <div className="text-xs text-muted-foreground font-normal">
+                                            Le dossier sera rénommé en "[ARCHIVED]..." dans votre espace personnel.
+                                        </div>
                                     </div>
-                                </div>
-                            </Button>
+                                </Button>
 
-                            <Button
-                                variant="outline"
-                                onClick={() => handleConfirmDelete(false)}
-                                className="justify-start h-auto py-3 px-4 text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300"
-                            >
-                                <Trash2 className="mr-3 h-5 w-5" />
-                                <div className="text-left">
-                                    <div className="font-semibold">Non, tout supprimer</div>
-                                    <div className="text-xs text-muted-foreground/80 font-normal">
-                                        Les fichiers seront détruits définitivement.
+                                <Button
+                                    variant="outline"
+                                    onClick={() => handleConfirmDelete(false)}
+                                    className="justify-start h-auto py-3 px-4 text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300"
+                                >
+                                    <Trash2 className="mr-3 h-5 w-5" />
+                                    <div className="text-left">
+                                        <div className="font-semibold">Non, tout supprimer</div>
+                                        <div className="text-xs text-muted-foreground/80 font-normal">
+                                            Les fichiers seront détruits définitivement.
+                                        </div>
                                     </div>
-                                </div>
-                            </Button>
+                                </Button>
+                            </div>
                         </div>
-                    </div>
-                </DialogContent>
-            </Dialog>
+                    </DialogContent>
+                </Dialog>
+            )}
         </div>
     );
 }
