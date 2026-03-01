@@ -198,13 +198,15 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
     const switchTab = useCallback((tabId) => {
         if (tabId === activeTabId) return;
         // Snapshot current canvas before switching
+        let currentSnapshot = null;
         if (whiteboardRef.current?.getCanvasSnapshot) {
-            const snapshot = whiteboardRef.current.getCanvasSnapshot();
-            setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, canvasData: snapshot } : t));
+            currentSnapshot = whiteboardRef.current.getCanvasSnapshot();
+            setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, canvasData: currentSnapshot } : t));
         }
         setActiveTabId(tabId);
         if (isProf) {
-            sendDataPacketFn({ type: 'tab-switch', tabId });
+            // Broadcast tab switch WITH the departing tab's snapshot so students have the drawing data
+            sendDataPacketFn({ type: 'tab-switch', tabId, fromTabId: activeTabId, fromCanvasData: currentSnapshot });
             debouncedSave();
         }
     }, [activeTabId, isProf, debouncedSave]);
@@ -305,7 +307,13 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
                 else if (data.type === 'chat') setMessages(prev => [...prev, { sender: data.senderName, text: data.text, time, isMe: false }]);
                 else if (data.type === 'file') setMessages(prev => [...prev, { sender: data.senderName, text: data.filename, url: data.url, filename: data.filename, size: data.size, type: 'file', time, isMe: false }]);
                 // Tab events (from teacher)
-                else if (data.type === 'tab-switch') setActiveTabId(data.tabId);
+                else if (data.type === 'tab-switch') {
+                    // Store the teacher's canvas snapshot for the tab they just left
+                    if (data.fromTabId && data.fromCanvasData) {
+                        setTabs(prev => prev.map(t => t.id === data.fromTabId ? { ...t, canvasData: data.fromCanvasData } : t));
+                    }
+                    setActiveTabId(data.tabId);
+                }
                 else if (data.type === 'tab-add') setTabs(prev => [...prev, { ...data.tab, canvasData: null }]);
                 else if (data.type === 'tab-close') setTabs(prev => {
                     const next = prev.filter(t => t.id !== data.tabId);
@@ -465,7 +473,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
     const textRef = useRef(null);
     const imageInputRef = useRef(null);
     const [cursorPos, setCursorPos] = useState(null);
-    const prevTabIdRef = useRef(activeTabId);
+    const prevTabIdRef = useRef(null); // null so first mount triggers canvas restore
 
     // Cloud UI State
     const [showSourceModal, setShowSourceModal] = useState(false);
@@ -512,6 +520,21 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
     }, []);
+
+    // Draw initial canvasData after first resize (for persistent state on mount)
+    useEffect(() => {
+        if (!tabData?.canvasData) return;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const timer = setTimeout(() => {
+            const img = new Image();
+            img.onload = () => {
+                canvas.getContext('2d').drawImage(img, 0, 0);
+            };
+            img.src = tabData.canvasData;
+        }, 100); // Small delay to ensure resize has completed
+        return () => clearTimeout(timer);
+    }, []); // Only on mount
 
     const sendData = async (payload) => {
         if (!room || !localParticipant) return;
