@@ -96,6 +96,9 @@ model Course {
   duration    Int          @default(60) // minutes
   status      CourseStatus @default(SCHEDULED)
 
+  // Whiteboard persistent state
+  whiteboardState Json?  // [{id, title, canvasData, background}]
+
   // Relations
   professorId String
   professor   User     @relation("ProfCourses", fields: [professorId], references: [id])

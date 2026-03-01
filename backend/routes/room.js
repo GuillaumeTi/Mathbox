@@ -24,6 +24,13 @@ router.post('/token', authMiddleware, async (req, res) => {
                     { studentId: req.user.id },
                 ],
             },
+            select: {
+                id: true,
+                code: true,
+                professorId: true,
+                studentId: true,
+                whiteboardState: true,
+            },
         });
 
         if (!course) {
@@ -81,6 +88,7 @@ router.post('/token', authMiddleware, async (req, res) => {
             roomName,
             sessionId: session.id,
             courseId: course.id,
+            whiteboardState: course.whiteboardState || null,
         });
     } catch (error) {
         console.error('[Room] Token error:', error);
@@ -263,6 +271,66 @@ router.post('/screenshot', authMiddleware, async (req, res) => {
     } catch (error) {
         console.error('[Room] Screenshot error:', error);
         res.status(500).json({ error: 'Failed to save screenshot' });
+    }
+});
+
+// GET /api/room/whiteboard/:courseId - Restore whiteboard state
+router.get('/whiteboard/:courseId', authMiddleware, async (req, res) => {
+    try {
+        const course = await prisma.course.findFirst({
+            where: {
+                id: req.params.courseId,
+                OR: [
+                    { professorId: req.user.id },
+                    { studentId: req.user.id },
+                ],
+            },
+            select: { whiteboardState: true },
+        });
+
+        if (!course) {
+            return res.status(404).json({ error: 'Course not found or access denied' });
+        }
+
+        res.json({ whiteboardState: course.whiteboardState || null });
+    } catch (error) {
+        console.error('[Room] Whiteboard restore error:', error);
+        res.status(500).json({ error: 'Failed to restore whiteboard state' });
+    }
+});
+
+// POST /api/room/whiteboard/:courseId - Save whiteboard state (Prof only)
+router.post('/whiteboard/:courseId', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'PROF') {
+            return res.status(403).json({ error: 'Only professors can save whiteboard state' });
+        }
+
+        const { tabs } = req.body;
+        if (!tabs || !Array.isArray(tabs)) {
+            return res.status(400).json({ error: 'Invalid whiteboard data: tabs must be an array' });
+        }
+
+        const course = await prisma.course.findFirst({
+            where: {
+                id: req.params.courseId,
+                professorId: req.user.id,
+            },
+        });
+
+        if (!course) {
+            return res.status(404).json({ error: 'Course not found or access denied' });
+        }
+
+        await prisma.course.update({
+            where: { id: req.params.courseId },
+            data: { whiteboardState: tabs },
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[Room] Whiteboard save error:', error);
+        res.status(500).json({ error: 'Failed to save whiteboard state' });
     }
 });
 

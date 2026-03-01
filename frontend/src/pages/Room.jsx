@@ -15,10 +15,14 @@ import {
     ArrowLeft, Video, VideoOff, Mic, MicOff, PenTool,
     Eraser, Type, Square, Circle, Minus, Triangle, Camera, Trash2,
     Lock, Unlock, MessageSquare, Send, X, Grid3X3,
-    Monitor, MonitorOff, ImagePlus, Cloud, Folder, ChevronRight, File, Paperclip, Download, BookOpen
+    Monitor, MonitorOff, ImagePlus, Cloud, Folder, ChevronRight, File, Paperclip, Download, BookOpen,
+    Plus, Edit3
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+
+const genId = () => Math.random().toString(36).substring(2, 10);
+const makeTab = (n) => ({ id: genId(), title: `Board ${n}`, canvasData: null, background: 'white' });
 
 const COLORS = ['#000000', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6'];
 
@@ -104,6 +108,7 @@ export default function Room() {
                     sessionId={connectionInfo.sessionId}
                     courseId={connectionInfo.courseId}
                     user={user}
+                    initialWhiteboardState={connectionInfo.whiteboardState}
                     onLeave={() => navigate(user.role === 'PROF' ? '/dashboard' : '/student')}
                 />
             </ErrorBoundary>
@@ -111,7 +116,7 @@ export default function Room() {
     );
 }
 
-function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
+function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardState, onLeave }) {
     const room = useRoomContext();
     const { localParticipant } = useLocalParticipant();
     const [messages, setMessages] = useState([]);
@@ -124,6 +129,89 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
     const [videoEnabled, setVideoEnabled] = useState(false);
     const [audioEnabled, setAudioEnabled] = useState(false);
     const isProf = user.role === 'PROF';
+
+    // ===== TAB STATE =====
+    const initTabs = () => {
+        if (initialWhiteboardState && Array.isArray(initialWhiteboardState) && initialWhiteboardState.length > 0) {
+            return initialWhiteboardState;
+        }
+        return [makeTab(1)];
+    };
+    const [tabs, setTabs] = useState(initTabs);
+    const [activeTabId, setActiveTabId] = useState(() => tabs[0]?.id || initTabs()[0].id);
+    const whiteboardRef = useRef(null); // ref to get canvas snapshot
+    const saveTimerRef = useRef(null);
+
+    // ===== PERSISTENCE (Prof only) =====
+    const saveWhiteboard = useCallback(async (tabsToSave) => {
+        if (!isProf) return;
+        try {
+            // Get current canvas snapshot from Whiteboard component
+            let currentTabs = tabsToSave || tabs;
+            if (whiteboardRef.current?.getCanvasSnapshot) {
+                const snapshot = whiteboardRef.current.getCanvasSnapshot();
+                currentTabs = currentTabs.map(t => t.id === activeTabId ? { ...t, canvasData: snapshot } : t);
+            }
+            await api.post(`/room/whiteboard/${courseId}`, { tabs: currentTabs });
+        } catch (e) { console.error('[Whiteboard] Save failed:', e); }
+    }, [isProf, tabs, activeTabId, courseId]);
+
+    const debouncedSave = useCallback(() => {
+        if (!isProf) return;
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(() => saveWhiteboard(), 2000);
+    }, [saveWhiteboard, isProf]);
+
+    // Save on leave
+    const handleLeave = useCallback(async () => {
+        if (isProf) await saveWhiteboard();
+        onLeave();
+    }, [isProf, saveWhiteboard, onLeave]);
+
+    // ===== TAB ACTIONS (Prof only) =====
+    const addTab = useCallback(() => {
+        if (!isProf) return;
+        const newTab = makeTab(tabs.length + 1);
+        setTabs(prev => [...prev, newTab]);
+        sendDataPacketFn({ type: 'tab-add', tab: { id: newTab.id, title: newTab.title, background: newTab.background } });
+        debouncedSave();
+    }, [isProf, tabs.length, debouncedSave]);
+
+    const closeTab = useCallback((tabId) => {
+        if (!isProf || tabs.length <= 1) return;
+        setTabs(prev => {
+            const next = prev.filter(t => t.id !== tabId);
+            if (activeTabId === tabId) setActiveTabId(next[0].id);
+            return next;
+        });
+        sendDataPacketFn({ type: 'tab-close', tabId });
+        debouncedSave();
+    }, [isProf, tabs.length, activeTabId, debouncedSave]);
+
+    const renameTab = useCallback((tabId, title) => {
+        if (!isProf) return;
+        setTabs(prev => prev.map(t => t.id === tabId ? { ...t, title } : t));
+        sendDataPacketFn({ type: 'tab-rename', tabId, title });
+        debouncedSave();
+    }, [isProf, debouncedSave]);
+
+    const switchTab = useCallback((tabId) => {
+        if (tabId === activeTabId) return;
+        // Snapshot current canvas before switching
+        if (whiteboardRef.current?.getCanvasSnapshot) {
+            const snapshot = whiteboardRef.current.getCanvasSnapshot();
+            setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, canvasData: snapshot } : t));
+        }
+        setActiveTabId(tabId);
+        if (isProf) {
+            sendDataPacketFn({ type: 'tab-switch', tabId });
+            debouncedSave();
+        }
+    }, [activeTabId, isProf, debouncedSave]);
+
+    // We need a ref-stable sendDataPacket for tab actions
+    const sendDataPacketFnRef = useRef(null);
+    const sendDataPacketFn = (...args) => sendDataPacketFnRef.current?.(...args);
 
     useEffect(() => {
         if (!localParticipant) return;
@@ -159,6 +247,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
         if (!room || !localParticipant) return;
         try { await localParticipant.publishData(new TextEncoder().encode(JSON.stringify(payload)), DataPacket_Kind.RELIABLE); } catch (e) { console.error(e); }
     };
+    sendDataPacketFnRef.current = sendDataPacket;
 
     const sendChatMessage = async (text) => {
         if (!text.trim()) return;
@@ -215,6 +304,15 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
                 else if (data.type === 'lock') setLocked(data.locked);
                 else if (data.type === 'chat') setMessages(prev => [...prev, { sender: data.senderName, text: data.text, time, isMe: false }]);
                 else if (data.type === 'file') setMessages(prev => [...prev, { sender: data.senderName, text: data.filename, url: data.url, filename: data.filename, size: data.size, type: 'file', time, isMe: false }]);
+                // Tab events (from teacher)
+                else if (data.type === 'tab-switch') setActiveTabId(data.tabId);
+                else if (data.type === 'tab-add') setTabs(prev => [...prev, { ...data.tab, canvasData: null }]);
+                else if (data.type === 'tab-close') setTabs(prev => {
+                    const next = prev.filter(t => t.id !== data.tabId);
+                    setActiveTabId(cur => cur === data.tabId ? next[0]?.id : cur);
+                    return next;
+                });
+                else if (data.type === 'tab-rename') setTabs(prev => prev.map(t => t.id === data.tabId ? { ...t, title: data.title } : t));
             } catch (err) { console.error(err); }
         };
         room.on(RoomEvent.DataReceived, handleData);
@@ -230,7 +328,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
         <div className="h-screen flex flex-col">
             <div className="h-12 glass-strong border-b flex items-center justify-between px-4 shrink-0">
                 <div className="flex items-center gap-3">
-                    <Button variant="ghost" size="sm" onClick={onLeave}><ArrowLeft className="w-4 h-4 mr-1" /> Quitter</Button>
+                    <Button variant="ghost" size="sm" onClick={handleLeave}><ArrowLeft className="w-4 h-4 mr-1" /> Quitter</Button>
                     <Badge variant="success" className="text-xs"><span className="w-2 h-2 rounded-full bg-emerald-400 mr-1.5 animate-pulse" /> En direct</Badge>
                 </div>
                 <div className="flex items-center gap-2">
@@ -256,9 +354,23 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
                 )}
                 {showBoard && (
                     <>
-                        <div className="flex-1 relative">
-                            {viewMode === 'SCREEN_SHARE' && activeScreenTrack && <div className="absolute inset-0 z-0"><VideoTrack trackRef={activeScreenTrack} className="w-full h-full object-contain bg-black" /></div>}
-                            <div className={`absolute inset-0 ${viewMode === 'SCREEN_SHARE' ? 'z-10' : 'z-0'}`}><Whiteboard localParticipant={localParticipant} locked={locked && !isProf} transparent={viewMode === 'SCREEN_SHARE'} isProf={isProf} /></div>
+                        <div className="flex-1 flex flex-col relative">
+                            {/* Tab Bar */}
+                            <TabBar tabs={tabs} activeTabId={activeTabId} isProf={isProf} onSwitch={switchTab} onAdd={addTab} onClose={closeTab} onRename={renameTab} />
+                            <div className="flex-1 relative">
+                                {viewMode === 'SCREEN_SHARE' && activeScreenTrack && <div className="absolute inset-0 z-0"><VideoTrack trackRef={activeScreenTrack} className="w-full h-full object-contain bg-black" /></div>}
+                                <div className={`absolute inset-0 ${viewMode === 'SCREEN_SHARE' ? 'z-10' : 'z-0'}`}>
+                                    <Whiteboard
+                                        ref={whiteboardRef}
+                                        localParticipant={localParticipant}
+                                        locked={locked && !isProf}
+                                        transparent={viewMode === 'SCREEN_SHARE'}
+                                        isProf={isProf}
+                                        activeTabId={activeTabId}
+                                        tabData={tabs.find(t => t.id === activeTabId)}
+                                    />
+                                </div>
+                            </div>
                         </div>
                         <div className="w-56 bg-gray-950 border-l border-border flex flex-col gap-2 p-2 shrink-0">
                             {remoteVideoTrack && <div className="w-full aspect-video rounded-lg overflow-hidden border border-border"><VideoTrack trackRef={remoteVideoTrack} className="w-full h-full object-cover" /></div>}
@@ -271,13 +383,72 @@ function RoomContent({ courseCode, sessionId, courseId, user, onLeave }) {
             <div className="h-16 glass-strong border-t flex items-center justify-center gap-3 shrink-0">
                 <Button variant={videoEnabled ? 'secondary' : 'destructive'} size="icon" className="rounded-full w-12 h-12" onClick={toggleVideo}>{videoEnabled ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}</Button>
                 <Button variant={audioEnabled ? 'secondary' : 'destructive'} size="icon" className="rounded-full w-12 h-12" onClick={toggleAudio}>{audioEnabled ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}</Button>
-                <Button variant="destructive" size="icon" className="rounded-full w-12 h-12" onClick={onLeave}><X className="w-5 h-5" /></Button>
+                <Button variant="destructive" size="icon" className="rounded-full w-12 h-12" onClick={handleLeave}><X className="w-5 h-5" /></Button>
             </div>
         </div>
     );
 }
 
-function Whiteboard({ localParticipant, locked, transparent, isProf }) {
+// ===== TAB BAR COMPONENT =====
+function TabBar({ tabs, activeTabId, isProf, onSwitch, onAdd, onClose, onRename }) {
+    const [editingId, setEditingId] = useState(null);
+    const [editVal, setEditVal] = useState('');
+    const inputRef = useRef(null);
+
+    useEffect(() => { if (editingId && inputRef.current) inputRef.current.focus(); }, [editingId]);
+
+    const startRename = (tab) => {
+        if (!isProf) return;
+        setEditingId(tab.id);
+        setEditVal(tab.title);
+    };
+    const commitRename = () => {
+        if (editVal.trim() && editingId) onRename(editingId, editVal.trim());
+        setEditingId(null);
+    };
+
+    return (
+        <div className="h-9 bg-gray-900 border-b border-gray-700 flex items-center px-2 gap-1 shrink-0 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+            {tabs.map(tab => (
+                <div
+                    key={tab.id}
+                    onClick={() => onSwitch(tab.id)}
+                    className={`flex items-center gap-1.5 px-3 h-7 rounded-md text-xs font-medium cursor-pointer transition-all whitespace-nowrap select-none ${tab.id === activeTabId
+                        ? 'bg-primary text-white shadow-sm'
+                        : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                        }`}
+                >
+                    {editingId === tab.id ? (
+                        <input
+                            ref={inputRef}
+                            value={editVal}
+                            onChange={e => setEditVal(e.target.value)}
+                            onBlur={commitRename}
+                            onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setEditingId(null); }}
+                            onClick={e => e.stopPropagation()}
+                            className="bg-transparent border-b border-white/50 outline-none text-white text-xs w-20"
+                        />
+                    ) : (
+                        <span onDoubleClick={(e) => { e.stopPropagation(); startRename(tab); }}>{tab.title}</span>
+                    )}
+                    {isProf && tabs.length > 1 && (
+                        <button onClick={(e) => { e.stopPropagation(); onClose(tab.id); }} className="ml-1 opacity-60 hover:opacity-100 transition-opacity">
+                            <X className="w-3 h-3" />
+                        </button>
+                    )}
+                </div>
+            ))}
+            {isProf && (
+                <button onClick={onAdd} className="w-7 h-7 rounded-md bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white flex items-center justify-center transition-colors shrink-0 ml-1">
+                    <Plus className="w-3.5 h-3.5" />
+                </button>
+            )}
+        </div>
+    );
+}
+
+// ===== WHITEBOARD COMPONENT =====
+const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, locked, transparent, isProf, activeTabId, tabData }, ref) {
     const room = useRoomContext();
     const canvasRef = useRef(null);
     const previewCanvasRef = useRef(null);
@@ -285,7 +456,7 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
     const [tool, setTool] = useState('pen');
     const [color, setColor] = useState(COLORS[3]);
     const [thickness, setThickness] = useState(3);
-    const [background, setBackground] = useState('white');
+    const [background, setBackground] = useState(tabData?.background || 'white');
     const [isDrawing, setIsDrawing] = useState(false);
     const lastPoint = useRef(null);
     const shapeStartRef = useRef(null);
@@ -294,12 +465,36 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
     const textRef = useRef(null);
     const imageInputRef = useRef(null);
     const [cursorPos, setCursorPos] = useState(null);
+    const prevTabIdRef = useRef(activeTabId);
 
     // Cloud UI State
     const [showSourceModal, setShowSourceModal] = useState(false);
     const [showCloudPicker, setShowCloudPicker] = useState(false);
 
-    // Initial resize (unchanged)
+    // Expose getCanvasSnapshot to parent via ref
+    React.useImperativeHandle(ref, () => ({
+        getCanvasSnapshot: () => canvasRef.current?.toDataURL('image/png') || null,
+    }));
+
+    // Restore canvas when tab changes
+    useEffect(() => {
+        if (prevTabIdRef.current === activeTabId) return;
+        prevTabIdRef.current = activeTabId;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const pCtx = previewCanvasRef.current?.getContext('2d');
+        if (pCtx) pCtx.clearRect(0, 0, previewCanvasRef.current.width, previewCanvasRef.current.height);
+        if (tabData?.canvasData) {
+            const img = new Image();
+            img.onload = () => { ctx.drawImage(img, 0, 0); };
+            img.src = tabData.canvasData;
+        }
+        setBackground(tabData?.background || 'white');
+    }, [activeTabId, tabData]);
+
+    // Initial resize
     useEffect(() => {
         const handleResize = () => {
             const canvas = canvasRef.current;
@@ -354,6 +549,8 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
             if (participant?.identity === localParticipant?.identity) return;
             try {
                 const data = JSON.parse(new TextDecoder().decode(payload));
+                // Only process events for the active tab
+                if (data.tabId && data.tabId !== activeTabId) return;
                 if (data.type === 'draw') applyDrawing(data);
                 else if (data.type === 'clear') clearCanvas();
                 else if (data.type === 'text-live') setRemoteText({ x: data.x1, y: data.y1, text: data.text, color: data.color, size: data.thickness * 6 });
@@ -407,7 +604,7 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
         if (!isDrawing || locked) return;
         const pos = getPos(e);
         if (tool === 'pen' || tool === 'eraser') {
-            const drawData = { type: 'draw', tool, x1: lastPoint.current.x, y1: lastPoint.current.y, x2: pos.x, y2: pos.y, color, thickness: tool === 'eraser' ? thickness * 5 : thickness };
+            const drawData = { type: 'draw', tabId: activeTabId, tool, x1: lastPoint.current.x, y1: lastPoint.current.y, x2: pos.x, y2: pos.y, color, thickness: tool === 'eraser' ? thickness * 5 : thickness };
             applyDrawing(drawData); sendData(drawData);
             lastPoint.current = pos;
         } else if (['line', 'rect', 'circle', 'triangle'].includes(tool) && shapeStartRef.current) {
@@ -422,7 +619,7 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
         const pos = getPos(e.changedTouches ? e.changedTouches[0] : e);
         if (['line', 'rect', 'circle', 'triangle'].includes(tool) && shapeStartRef.current) {
             clearPreview();
-            const drawData = { type: 'draw', tool, x1: shapeStartRef.current.x, y1: shapeStartRef.current.y, x2: pos.x, y2: pos.y, color, thickness };
+            const drawData = { type: 'draw', tabId: activeTabId, tool, x1: shapeStartRef.current.x, y1: shapeStartRef.current.y, x2: pos.x, y2: pos.y, color, thickness };
             applyDrawing(drawData); sendData(drawData);
             shapeStartRef.current = null;
         }
@@ -466,10 +663,10 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
                 <input type="range" min={1} max={10} value={thickness} onChange={e => setThickness(parseInt(e.target.value))} className="w-10 rotate-[-90deg] mt-4 mb-4" />
                 <div className="w-8 border-t border-gray-300 dark:border-gray-600 my-2" />
                 {!transparent && isProf && Object.entries(BG_STYLES).map(([id, bg]) => (
-                    <button key={id} onClick={() => { setBackground(id); sendData({ type: 'background', bg: id }); }} className={`w-8 h-8 rounded border-2 transition-colors ${background === id ? 'border-primary' : 'border-gray-300 dark:border-gray-600'}`} style={{ background: id === 'white' ? '#fff' : id === 'grid' ? '#f0f0f0' : '#f5f0e8' }}>{id === 'grid' && <Grid3X3 className="w-4 h-4 text-gray-400 mx-auto" />}</button>
+                    <button key={id} onClick={() => { setBackground(id); sendData({ type: 'background', tabId: activeTabId, bg: id }); }} className={`w-8 h-8 rounded border-2 transition-colors ${background === id ? 'border-primary' : 'border-gray-300 dark:border-gray-600'}`} style={{ background: id === 'white' ? '#fff' : id === 'grid' ? '#f0f0f0' : '#f5f0e8' }}>{id === 'grid' && <Grid3X3 className="w-4 h-4 text-gray-400 mx-auto" />}</button>
                 ))}
                 <div className="mt-auto" />
-                <button onClick={() => { if (confirm('Tout effacer ?')) { clearCanvas(); clearPreview(); sendData({ type: 'clear' }); } }} className="w-10 h-10 rounded-lg text-red-500 hover:bg-red-100 flex items-center justify-center"><Trash2 className="w-5 h-5" /></button>
+                <button onClick={() => { if (confirm('Tout effacer ?')) { clearCanvas(); clearPreview(); sendData({ type: 'clear', tabId: activeTabId }); } }} className="w-10 h-10 rounded-lg text-red-500 hover:bg-red-100 flex items-center justify-center"><Trash2 className="w-5 h-5" /></button>
             </div>
 
             <div ref={wrapperRef} className="flex-1 relative overflow-hidden" style={bgStyle} onPointerLeave={() => setCursorPos(null)}>
@@ -513,7 +710,7 @@ function Whiteboard({ localParticipant, locked, transparent, isProf }) {
             {showCloudPicker && <CloudFilePicker onClose={() => setShowCloudPicker(false)} onSelect={handleCloudImageSelect} />}
         </div>
     );
-}
+});
 
 // Minimal Cloud Picker Component
 function CloudFilePicker({ onClose, onSelect }) {
