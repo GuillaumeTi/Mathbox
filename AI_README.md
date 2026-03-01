@@ -63,7 +63,9 @@ The Cloud Storage uses a **strict Virtual File System (VFS)** logic enforced by 
 -   **Chat Attachments & Screenshots**: Automatically routed to:
     `[Course_Root]/Archives/{YYYY-MM-DD}/`
 -   **Implementation**: `ensureFolder` helper in `documents.js` and `room.js`.
--   **Physical Path**: `/uploads/{student_id}/{date - course_title}/{filename}` (Aligned with VFS).
+-   **Physical Paths** (Aligned with VPS storage structure):
+    -   **Course Context**: `Teacher_{ProfID}/Student/Student_{StudentID}/{CourseName}/Archives/{YYYY-MM-DD}/{filename}`
+    -   **Private Context**: `Teacher_{ProfID}/Private/[VirtualSubfolder]/{filename}`
 
 ## 6. 🎨 Features & Capabilities
 -   **Whiteboard**:
