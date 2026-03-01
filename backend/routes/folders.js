@@ -164,11 +164,11 @@ router.get('/', authMiddleware, async (req, res) => {
         const accessibleFolders = [];
         for (const f of folders) {
             if (f.ownerId === user.id) {
-                accessibleFolders.push(f); // Prof owns it
+                accessibleFolders.push(f); // Owns it
             } else if (f.courseId) {
-                // Check if user is student of that course
+                // Check if user is student OR professor of that course
                 const course = await prisma.course.findUnique({ where: { id: f.courseId } });
-                if (course && course.studentId === user.id) {
+                if (course && (course.studentId === user.id || course.professorId === user.id)) {
                     accessibleFolders.push(f);
                 }
             }
@@ -243,24 +243,76 @@ router.post('/', authMiddleware, async (req, res) => {
     }
 });
 
+const { deleteFile } = require('../services/storageService');
+
+// ... (existing code)
+
 // DELETE /api/folders/:id
 router.delete('/:id', authMiddleware, async (req, res) => {
     try {
-        // Allow delete if Owner OR if (Student and Owner is Prof but in Shared Course)
+        const folderId = req.params.id;
+
+        // 1. Fetch folder with ownership check
         const folder = await prisma.folder.findUnique({
-            where: { id: req.params.id },
+            where: { id: folderId },
             include: { course: true }
         });
 
         if (!folder) return res.status(404).json({ error: 'Folder not found' });
 
+        // 2. Access Check
         let canDelete = false;
         if (folder.ownerId === req.user.id) canDelete = true;
+        // Allow deletion if it's a course folder and user is the student (rare, usually readonly?)
+        // Let's stick to Owner only for deletion to be safe, unless explicit logic.
+        // Provided code allowed course student to delete? 
+        // "if (folder.course && folder.course.studentId === req.user.id) canDelete = true;"
+        // We'll keep that.
         else if (folder.course && folder.course.studentId === req.user.id) canDelete = true;
 
         if (!canDelete) return res.status(403).json({ error: 'Access denied' });
 
-        await prisma.folder.delete({ where: { id: req.params.id } });
+        // 3. Recursive Deletion Strategy
+        // We need to delete all documents in this folder AND subfolders physically.
+
+        // Helper to get all descendant folder IDs
+        async function getDescendantIds(rootId) {
+            const children = await prisma.folder.findMany({ where: { parentId: rootId } });
+            let ids = [rootId];
+            for (const child of children) {
+                const subIds = await getDescendantIds(child.id);
+                ids = [...ids, ...subIds];
+            }
+            return ids;
+        }
+
+        const allFolderIds = await getDescendantIds(folderId);
+
+        // 4. Find all documents in these folders
+        const docs = await prisma.document.findMany({
+            where: { folderId: { in: allFolderIds } }
+        });
+
+        // 5. Delete physical files
+        for (const doc of docs) {
+            try {
+                // Determine relative path for storageService
+                const relativePath = doc.url.replace('/uploads/', '');
+                await deleteFile(relativePath);
+            } catch (err) {
+                console.error(`Failed to delete physical file for doc ${doc.id}:`, err);
+                // Continue deletion of DB records even if file missing
+            }
+        }
+
+        // 6. Delete Documents in DB
+        await prisma.document.deleteMany({
+            where: { folderId: { in: allFolderIds } }
+        });
+
+        // 7. Delete Folder (Prisma Cascade will handle subfolders)
+        await prisma.folder.delete({ where: { id: folderId } });
+
         res.json({ success: true });
     } catch (error) {
         console.error('[Folders] Delete error:', error);

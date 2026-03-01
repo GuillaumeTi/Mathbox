@@ -24,9 +24,15 @@ const upload = multer({
 
 // Helper to ensure a folder exists
 async function ensureFolder(name, parentId, courseId, ownerId) {
+    // For root course folders (parentId is null), look up strictly by courseId
+    const query = (parentId === null && courseId)
+        ? { parentId: null, courseId }
+        : { name, parentId, courseId };
+
     let folder = await prisma.folder.findFirst({
-        where: { name, parentId, courseId }
+        where: query
     });
+
     if (!folder) {
         // Get parent path
         let parentPath = '';
@@ -56,63 +62,122 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
             return res.status(400).json({ error: 'No file uploaded' });
         }
 
+        // Sanitize helper
+        // Optionally pass a flag to strip specific suffixes like ' - Modified'
+        const sanitize = (str, isCourseName = false) => {
+            let s = str || '';
+            if (isCourseName) {
+                // Strip " - Modified" (case-insensitive) before sanitizing
+                s = s.replace(/\s*-\s*Modified\s*/gi, '');
+            }
+            return s.replace(/[^a-zA-Z0-9._-]/g, '_');
+        };
+
         const { courseId, sessionId, folderId, type, source } = req.body;
         const timestamp = Date.now();
-        const safeName = `${timestamp}_${req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const safeName = `${timestamp}_${sanitize(req.file.originalname)}`;
 
         let finalFolderId = folderId;
-        let targetPath = '';
-        let ownerId = req.user.id; // Uploader is owner of doc
 
-        // Logic for Auto-Archiving (Chat & Screenshots)
-        if (courseId && (source === 'chat_attachment' || source === 'screenshot')) {
-            // 1. Get Course to find Professor (who owns the structure)
-            const course = await prisma.course.findUnique({ where: { id: courseId }, include: { student: true } });
+        // Fix: Handle Virtual Folder IDs from Frontend (e.g., 'private', 'students', 'virtual_...')
+        // If folderId is not a valid UUID, set it to null (Root)
+        const isUuid = (id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+        if (finalFolderId && !isUuid(finalFolderId)) {
+            console.log(`[Upload] Virtual folderId detected: ${finalFolderId}. Mapping to NULL.`);
+            finalFolderId = null;
+        }
 
-            if (course) {
-                // Structure Owner is Professor
-                const structOwnerId = course.professorId;
+        let ownerId = req.user.id; // Uploader
 
-                // 2. Ensure Root Course Folder
-                // Name it by Course Title or "Shared"
-                const rootFolder = await ensureFolder(course.title, null, courseId, structOwnerId);
-
-                // 3. Ensure 'Archives'
-                const archivesFolder = await ensureFolder('Archives', rootFolder.id, courseId, structOwnerId);
-
-                // 4. Ensure Date Folder
-                const dateStr = new Date().toISOString().split('T')[0];
-                const dateFolder = await ensureFolder(dateStr, archivesFolder.id, courseId, structOwnerId);
-
-                finalFolderId = dateFolder.id;
-
-                // Construct physical path match
-                // /bucket/{student_id}/{date - course}/{filename}  <-- OLD Logic
-                // New Logic: /bucket/{prof_id}/VFS_PATH/{filename} ?
-                // The Prompt says: "Target Path: [Shared_Folder]/Archives/2026-02-15/"
-                // We should respect the VFS structure for physical storage too?
-                // Or stick to the Phase 12 logic? Phase 12 was: `${studentId}/${date} - ${courseTitle}/${filename}`
-                // Let's align physical storage with VFS path for consistency if possible, 
-                // OR just keep using the Phase 12 physical path but link it to the VFS Folder.
-                // The prompt says: "Save the file/screenshot in this specific folder." -> Refers to VFS.
-
-                // Let's use Phase 12 pysical path strategy because it organizes by Student nicely in S3.
-                // But VFS is what users see.
-
-                const folderName = `${dateStr} - ${course.title.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-                targetPath = `${course.studentId}/${folderName}/${safeName}`;
+        // Fix: Inherit courseId from folder if not provided by frontend
+        let activeCourseId = courseId;
+        if (!activeCourseId && finalFolderId) {
+            const folderInfo = await prisma.folder.findUnique({ where: { id: finalFolderId } });
+            if (folderInfo && folderInfo.courseId) {
+                activeCourseId = folderInfo.courseId;
             }
         }
 
-        // Fallback or explicit folder upload
-        if (!targetPath) {
-            if (courseId) {
-                // If explicit folderId provided, use it.
-                // If not, maybe root of course?
-                targetPath = `${req.user.id}/${courseId}/${safeName}`;
-            } else {
-                targetPath = `${req.user.id}/${finalFolderId || 'root'}/${safeName}`;
+        // ---------------------------------------------------------
+        // 1. Auto-Archiving Logic (Virtual Structure Creation)
+        // ---------------------------------------------------------
+        if (activeCourseId && (source === 'chat_attachment' || source === 'screenshot')) {
+            const course = await prisma.course.findUnique({ where: { id: activeCourseId } });
+            if (course) {
+                const structOwnerId = course.professorId;
+                // Ensure Hierarchy: Course -> Archives -> Date
+                const rootFolder = await ensureFolder(course.title, null, activeCourseId, structOwnerId);
+                const archivesFolder = await ensureFolder('Archives', rootFolder.id, activeCourseId, structOwnerId);
+                const dateStr = new Date().toISOString().split('T')[0];
+                const dateFolder = await ensureFolder(dateStr, archivesFolder.id, activeCourseId, structOwnerId);
+                finalFolderId = dateFolder.id;
             }
+        }
+
+        // ---------------------------------------------------------
+        // 2. Physical Path Construction (New Structure)
+        // Pattern: 
+        //   - Private: Teacher_{ID}/Private/{VirtualPath}/{Filename}
+        //   - Course:  Teacher_{ID}/Student/{CourseName}/{Filename}
+        // ---------------------------------------------------------
+
+        let targetPath = '';
+        let targetFolderIds = []; // To build path string if needed
+
+        // Resolve Root Context
+        if (activeCourseId) {
+            // --- COURSE CONTEXT ---
+            const course = await prisma.course.findUnique({
+                where: { id: activeCourseId },
+                select: { title: true, professorId: true, studentId: true }
+            });
+
+            if (course) {
+                const profId = course.professorId;
+                const studentId = course.studentId;
+                const courseName = sanitize(course.title, true);
+                let folderPath = '';
+
+                // Construct relative folder path if within a subfolder
+                if (finalFolderId) {
+                    let currentFolder = await prisma.folder.findUnique({ where: { id: finalFolderId } });
+                    const pathParts = [];
+                    // Traverse up to find all subfolders, stop if parentId is null (meaning it's the root course folder)
+                    while (currentFolder && currentFolder.parentId !== null) {
+                        pathParts.unshift(sanitize(currentFolder.name));
+                        currentFolder = await prisma.folder.findUnique({ where: { id: currentFolder.parentId } });
+                    }
+                    if (pathParts.length > 0) {
+                        folderPath = `/${pathParts.join('/')}`;
+                    }
+                }
+
+                targetPath = `Teacher_${profId}/Student/Student_${studentId}/${courseName}${folderPath}/${safeName}`;
+            } else {
+                // Fallback for orphaned courseId?
+                targetPath = `Unknown_Course/${safeName}`;
+            }
+
+        } else {
+            // --- PRIVATE CONTEXT ---
+            // Assuming the User is the Teacher/Owner of the private file
+            // If Student uploads "Private", it goes to their own Teacher_ID root?
+            // "Teacher_{ID}" implies this is keyed by the user's ID if they are a teacher.
+            // If user is student, maybe "Student_{ID}"? 
+            // The prompt specifically asked for "Teacher_{ID}" structure. 
+            // We'll use the uploader's ID as the root.
+            const rootPrefix = req.user.role === 'PROF' ? 'Teacher' : 'User';
+            const rootId = req.user.id;
+            let folderPath = '';
+
+            if (finalFolderId) {
+                const folder = await prisma.folder.findUnique({ where: { id: finalFolderId } });
+                // If the folder is "Archives" or similar, we include it based on user request:
+                // "Private > Archive folder and everything that i put in this folder"
+                if (folder) folderPath = `/${sanitize(folder.name)}`;
+            }
+
+            targetPath = `${rootPrefix}_${rootId}/Private${folderPath}/${safeName}`;
         }
 
         const result = await uploadFile(req.file.buffer, targetPath, req.file.mimetype);
@@ -125,7 +190,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
                 size: req.file.size,
                 mimeType: req.file.mimetype,
                 ownerId,
-                courseId: courseId || null,
+                courseId: activeCourseId || null,
                 sessionId: sessionId || null,
                 folderId: finalFolderId || null, // Link to the VFS folder
             },
@@ -134,7 +199,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
         res.status(201).json({ document: doc });
     } catch (error) {
         console.error('[Documents] Upload error:', error);
-        res.status(500).json({ error: 'Failed to upload document' });
+        res.status(500).json({ error: 'Failed to upload document', details: error.message });
     }
 });
 

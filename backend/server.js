@@ -22,8 +22,14 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Static files: uploads
-const uploadDir = process.env.UPLOAD_DIR || './uploads';
-app.use('/uploads', express.static(path.resolve(uploadDir)));
+// Static files: uploads
+const uploadPath = process.env.UPLOAD_DIR || 'uploads';
+const absoluteUploadPath = path.isAbsolute(uploadPath)
+    ? uploadPath
+    : path.join(__dirname, uploadPath);
+
+console.log(`[Server] Serving uploads from: ${absoluteUploadPath}`);
+app.use('/uploads', express.static(absoluteUploadPath));
 
 // ============ ROUTES ============
 app.use('/api/auth', require('./routes/auth'));
@@ -34,6 +40,7 @@ app.use('/api/folders', require('./routes/folders'));
 app.use('/api/homeworks', require('./routes/homeworks'));
 app.use('/api/webhooks', require('./routes/webhooks'));
 app.use('/api/shop', require('./routes/shop'));
+app.use('/api/storage', require('./routes/storage'));
 
 // ============ SOCKET.IO ============
 io.on('connection', (socket) => {

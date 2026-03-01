@@ -154,9 +154,15 @@ router.get('/status', authMiddleware, async (req, res) => {
 
 // Helper to ensure a folder exists
 async function ensureFolder(name, parentId, courseId, ownerId) {
+    // For root course folders (parentId is null), look up strictly by courseId
+    const query = (parentId === null && courseId)
+        ? { parentId: null, courseId }
+        : { name, parentId, courseId };
+
     let folder = await prisma.folder.findFirst({
-        where: { name, parentId, courseId }
+        where: query
     });
+
     if (!folder) {
         // Get parent path
         let parentPath = '';
@@ -215,17 +221,26 @@ router.post('/screenshot', authMiddleware, async (req, res) => {
         const dateStr = new Date().toISOString().split('T')[0];
         const dateFolder = await ensureFolder(dateStr, archivesFolder.id, courseId, structOwnerId);
 
-        // Physical Path Strategy (Align with documents.js)
-        // Path: /bucket/{student_id}/{YYYY-MM-DD - Course_Name}/{filename}
-        const cleanTitle = course.title.replace(/[^a-zA-Z0-9._-]/g, '_');
-        const folderName = `${dateStr} - ${cleanTitle}`;
-        const studentId = course.studentId || 'general';
+        // Sanitize helper (identical to documents.js)
+        const sanitize = (str, isCourseName = false) => {
+            let s = str || '';
+            if (isCourseName) {
+                // Strip " - Modified" (case-insensitive) before sanitizing
+                s = s.replace(/\s*-\s*Modified\s*/gi, '');
+            }
+            return s.replace(/[^a-zA-Z0-9._-]/g, '_');
+        };
+
+        const profId = course.professorId;
+        const studentId = course.studentId || 'Unknown';
+        const courseName = sanitize(course.title, true);
 
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const safeName = (name || `Screenshot ${timestamp}`).replace(/[^a-zA-Z0-9À-ÿ _-]/g, '').trim();
         const filename = `${safeName}.png`;
 
-        const targetPath = `${studentId}/${folderName}/${filename}`;
+        // Physical Path Strategy: Teacher_{ID}/Student/Student_{ID}/{CourseName}/Archives/{Date}/{filename}
+        const targetPath = `Teacher_${profId}/Student/Student_${studentId}/${courseName}/Archives/${dateStr}/${filename}`;
 
         const result = await uploadFile(buffer, targetPath, 'image/png');
 

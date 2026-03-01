@@ -13,11 +13,19 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
-const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
+// Robust UPLOAD_DIR resolution relative to backend root
+const backendRoot = path.resolve(__dirname, '..'); // services/.. -> backend/
+let uploadDir = process.env.UPLOAD_DIR || 'uploads';
+
+if (!path.isAbsolute(uploadDir)) {
+  uploadDir = path.join(backendRoot, uploadDir);
+}
+const UPLOAD_DIR = uploadDir;
+console.log(`[Storage Service] UPLOAD_DIR resolved to: ${UPLOAD_DIR}`);
 
 // Ensure upload directory exists
 if (!fs.existsSync(UPLOAD_DIR)) {
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
 /*
@@ -45,43 +53,43 @@ const BUCKET = process.env.S3_BUCKET || 'mathbox-storage';
  * @returns {Object} Upload result with URL
  */
 async function uploadFile(fileBuffer, targetPath, mimeType = 'application/octet-stream') {
-    /*
-    // ============ REAL S3 IMPLEMENTATION ============
-    const command = new PutObjectCommand({
-      Bucket: BUCKET,
-      Key: targetPath,
-      Body: fileBuffer,
-      ContentType: mimeType,
-    });
-    
-    await s3.send(command);
-    
-    return {
-      success: true,
-      url: `s3://${BUCKET}/${targetPath}`,
-      key: targetPath,
-    };
-    // ============ END REAL S3 IMPLEMENTATION ============
-    */
+  /*
+  // ============ REAL S3 IMPLEMENTATION ============
+  const command = new PutObjectCommand({
+    Bucket: BUCKET,
+    Key: targetPath,
+    Body: fileBuffer,
+    ContentType: mimeType,
+  });
+  
+  await s3.send(command);
+  
+  return {
+    success: true,
+    url: `s3://${BUCKET}/${targetPath}`,
+    key: targetPath,
+  };
+  // ============ END REAL S3 IMPLEMENTATION ============
+  */
 
-    // ============ MOCK: Local filesystem ============
-    const fullPath = path.join(UPLOAD_DIR, targetPath);
-    const dir = path.dirname(fullPath);
+  // ============ MOCK: Local filesystem ============
+  const fullPath = path.join(UPLOAD_DIR, targetPath);
+  const dir = path.dirname(fullPath);
 
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-    }
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
 
-    fs.writeFileSync(fullPath, fileBuffer);
-    console.log(`[Storage Mock] File saved: ${fullPath} (${fileBuffer.length} bytes)`);
+  fs.writeFileSync(fullPath, fileBuffer);
+  console.log(`[Storage Mock] File saved: ${fullPath} (${fileBuffer.length} bytes)`);
 
-    return {
-        success: true,
-        url: `/uploads/${targetPath}`,
-        key: targetPath,
-        size: fileBuffer.length,
-    };
-    // ============ END MOCK ============
+  return {
+    success: true,
+    url: `/uploads/${targetPath}`,
+    key: targetPath,
+    size: fileBuffer.length,
+  };
+  // ============ END MOCK ============
 }
 
 /**
@@ -90,37 +98,37 @@ async function uploadFile(fileBuffer, targetPath, mimeType = 'application/octet-
  * @returns {Object} Result with signed URL
  */
 async function getSignedUrl(filePath) {
-    /*
-    // ============ REAL S3 IMPLEMENTATION ============
-    const command = new GetObjectCommand({
-      Bucket: BUCKET,
-      Key: filePath,
-    });
-  
-    const signedUrl = await s3GetSignedUrl(s3, command, { expiresIn: 3600 });
-  
-    return {
-      success: true,
-      url: signedUrl,
-      expiresIn: 3600,
-    };
-    // ============ END REAL S3 IMPLEMENTATION ============
-    */
+  /*
+  // ============ REAL S3 IMPLEMENTATION ============
+  const command = new GetObjectCommand({
+    Bucket: BUCKET,
+    Key: filePath,
+  });
+ 
+  const signedUrl = await s3GetSignedUrl(s3, command, { expiresIn: 3600 });
+ 
+  return {
+    success: true,
+    url: signedUrl,
+    expiresIn: 3600,
+  };
+  // ============ END REAL S3 IMPLEMENTATION ============
+  */
 
-    // ============ MOCK: Local path ============
-    const localUrl = `/uploads/${filePath}`;
-    const fullPath = path.join(UPLOAD_DIR, filePath);
+  // ============ MOCK: Local path ============
+  const localUrl = `/uploads/${filePath}`;
+  const fullPath = path.join(UPLOAD_DIR, filePath);
 
-    if (!fs.existsSync(fullPath)) {
-        return { success: false, error: 'File not found' };
-    }
+  if (!fs.existsSync(fullPath)) {
+    return { success: false, error: 'File not found' };
+  }
 
-    return {
-        success: true,
-        url: localUrl,
-        expiresIn: null, // No expiration for local files
-    };
-    // ============ END MOCK ============
+  return {
+    success: true,
+    url: localUrl,
+    expiresIn: null, // No expiration for local files
+  };
+  // ============ END MOCK ============
 }
 
 /**
@@ -129,28 +137,28 @@ async function getSignedUrl(filePath) {
  * @returns {Object} Deletion result
  */
 async function deleteFile(filePath) {
-    /*
-    // ============ REAL S3 IMPLEMENTATION ============
-    const command = new DeleteObjectCommand({
-      Bucket: BUCKET,
-      Key: filePath,
-    });
-  
-    await s3.send(command);
-    return { success: true };
-    // ============ END REAL S3 IMPLEMENTATION ============
-    */
+  /*
+  // ============ REAL S3 IMPLEMENTATION ============
+  const command = new DeleteObjectCommand({
+    Bucket: BUCKET,
+    Key: filePath,
+  });
+ 
+  await s3.send(command);
+  return { success: true };
+  // ============ END REAL S3 IMPLEMENTATION ============
+  */
 
-    // ============ MOCK: Local deletion ============
-    const fullPath = path.join(UPLOAD_DIR, filePath);
+  // ============ MOCK: Local deletion ============
+  const fullPath = path.join(UPLOAD_DIR, filePath);
 
-    if (fs.existsSync(fullPath)) {
-        fs.unlinkSync(fullPath);
-        console.log(`[Storage Mock] File deleted: ${fullPath}`);
-    }
+  if (fs.existsSync(fullPath)) {
+    fs.unlinkSync(fullPath);
+    console.log(`[Storage Mock] File deleted: ${fullPath}`);
+  }
 
-    return { success: true };
-    // ============ END MOCK ============
+  return { success: true };
+  // ============ END MOCK ============
 }
 
 module.exports = { uploadFile, getSignedUrl, deleteFile };
