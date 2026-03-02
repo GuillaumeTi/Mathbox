@@ -22,7 +22,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 const genId = () => Math.random().toString(36).substring(2, 10);
-const makeTab = (n) => ({ id: genId(), title: `Board ${n}`, canvasData: null, background: 'white' });
+const makeTab = (n, id = null) => ({ id: id || genId(), title: `Board ${n}`, canvasData: null, background: 'white' });
 
 const COLORS = ['#000000', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6'];
 
@@ -135,7 +135,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
         if (initialWhiteboardState && Array.isArray(initialWhiteboardState) && initialWhiteboardState.length > 0) {
             return initialWhiteboardState;
         }
-        return [makeTab(1)];
+        return [makeTab(1, 'default-board-1')];
     };
     const [tabs, setTabs] = useState(initTabs);
     const [activeTabId, setActiveTabId] = useState(() => tabs[0]?.id || initTabs()[0].id);
@@ -228,6 +228,24 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
         return () => { localParticipant.off('trackPublished', sync); localParticipant.off('localTrackPublished', sync); };
     }, [localParticipant]);
 
+    // Send full tab state to late-joining students
+    useEffect(() => {
+        if (!room || !isProf) return;
+        const handleNewParticipant = () => {
+            let currentSnapshot = null;
+            if (whiteboardRef.current?.getCanvasSnapshot) {
+                currentSnapshot = whiteboardRef.current.getCanvasSnapshot();
+            }
+            sendDataPacketFn({
+                type: 'tab-sync',
+                activeTabId,
+                tabs: tabs.map(t => t.id === activeTabId ? { ...t, canvasData: currentSnapshot } : t),
+            });
+        };
+        room.on(RoomEvent.ParticipantConnected, handleNewParticipant);
+        return () => room.off(RoomEvent.ParticipantConnected, handleNewParticipant);
+    }, [room, isProf, activeTabId, tabs]);
+
     const broadcastMode = useCallback(async (mode) => {
         setViewMode(mode);
         if (!room || !localParticipant) return;
@@ -307,6 +325,10 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
                 else if (data.type === 'chat') setMessages(prev => [...prev, { sender: data.senderName, text: data.text, time, isMe: false }]);
                 else if (data.type === 'file') setMessages(prev => [...prev, { sender: data.senderName, text: data.filename, url: data.url, filename: data.filename, size: data.size, type: 'file', time, isMe: false }]);
                 // Tab events (from teacher)
+                else if (data.type === 'tab-sync') {
+                    setTabs(data.tabs);
+                    setActiveTabId(data.activeTabId);
+                }
                 else if (data.type === 'tab-switch') {
                     // Store the teacher's canvas snapshot for the tab they just left
                     if (data.fromTabId && data.fromCanvasData) {
