@@ -429,7 +429,8 @@ export default function ParentDashboard() {
                                                 {/* Magic Link */}
                                                 <div>
                                                     <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
-                                                        <Link2 className="w-4 h-4 text-muted-foreground" /> Lien d'inscription pour votre enfant
+                                                        <Link2 className="w-4 h-4 text-muted-foreground" />
+                                                        {child.needsPasswordSetup ? "Lien d'inscription pour votre enfant" : "Lien de réinitialisation de mot de passe"}
                                                     </h3>
                                                     {childMagicLinks[child.id] ? (
                                                         <div className="space-y-2">
@@ -449,7 +450,10 @@ export default function ParentDashboard() {
                                                     ) : (
                                                         <Button variant="outline" size="sm" onClick={() => generateMagicLink(child.id)} disabled={loadingMagicLink === child.id}>
                                                             <Link2 className="w-4 h-4 mr-1" />
-                                                            {loadingMagicLink === child.id ? 'Génération...' : 'Générer un lien magique'}
+                                                            {loadingMagicLink === child.id
+                                                                ? 'Génération...'
+                                                                : (child.needsPasswordSetup ? "Générer un lien d'inscription" : "Générer un lien de réinitialisation")
+                                                            }
                                                         </Button>
                                                     )}
                                                 </div>
