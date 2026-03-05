@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
+import PayInvoiceModal from '@/components/PayInvoiceModal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -53,6 +54,9 @@ export default function ParentDashboard() {
     const [courseCode, setCourseCode] = useState('');
     const [courseChildId, setCourseChildId] = useState('');
     const [enrolling, setEnrolling] = useState(false);
+
+    // Invoice payment
+    const [payingInvoice, setPayingInvoice] = useState(null);
 
     useEffect(() => {
         fetchMe().then(() => { });
@@ -234,7 +238,7 @@ export default function ParentDashboard() {
                                                             </td>
                                                             <td className="py-3">
                                                                 {inv.status === 'PENDING' && (
-                                                                    <Button size="sm" variant="outline">Payer</Button>
+                                                                    <Button size="sm" variant="outline" onClick={() => setPayingInvoice(inv)}>Payer</Button>
                                                                 )}
                                                                 {inv.fileUrl && (
                                                                     <Button size="sm" variant="ghost" asChild>
@@ -562,6 +566,16 @@ export default function ParentDashboard() {
                     )}
                 </div>
             </div>
+
+            <PayInvoiceModal
+                isOpen={!!payingInvoice}
+                onClose={() => setPayingInvoice(null)}
+                invoice={payingInvoice}
+                onPaid={() => {
+                    setPayingInvoice(null);
+                    api.get('/invoices').then(d => setInvoices(d.invoices || [])).catch(() => { });
+                }}
+            />
         </div>
     );
 }

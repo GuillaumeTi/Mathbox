@@ -9,10 +9,12 @@ import { loadConnectAndInitialize } from '@stripe/connect-js';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import {
     CheckCircle, AlertTriangle, Loader2, Wallet,
-    CreditCard, ArrowDownToLine, Settings
+    CreditCard, ArrowDownToLine, Settings, FileText, Plus
 } from 'lucide-react';
 
 export default function ConnectOnboarding() {
@@ -20,7 +22,14 @@ export default function ConnectOnboarding() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [stripeConnectInstance, setStripeConnectInstance] = useState(null);
-    const [activeTab, setActiveTab] = useState('onboarding'); // 'onboarding' | 'payments' | 'payouts'
+    const [activeTab, setActiveTab] = useState('onboarding'); // 'onboarding' | 'payments' | 'payouts' | 'factures'
+
+    // Invoice state
+    const [invoices, setInvoices] = useState([]);
+    const [courses, setCourses] = useState([]);
+    const [invoiceForm, setInvoiceForm] = useState({ courseId: '', amount: '', description: '' });
+    const [creatingInvoice, setCreatingInvoice] = useState(false);
+    const [invoiceSuccess, setInvoiceSuccess] = useState(false);
 
     // Fetch Connect status on mount
     useEffect(() => {
@@ -32,12 +41,42 @@ export default function ConnectOnboarding() {
             const data = await api.get('/stripe/connect/status');
             setConnectStatus(data);
             if (data.hasAccount && data.detailsSubmitted) {
-                setActiveTab('payments');
+                setActiveTab('factures');
             }
         } catch (err) {
             setError(err.message);
         }
         setLoading(false);
+    };
+
+    const fetchInvoices = async () => {
+        try {
+            const data = await api.get('/invoices');
+            setInvoices(data.invoices || []);
+        } catch (err) { console.error(err); }
+    };
+
+    const fetchCourses = async () => {
+        try {
+            const data = await api.get('/courses');
+            setCourses(data.courses || []);
+        } catch (err) { console.error(err); }
+    };
+
+    const handleCreateInvoice = async (e) => {
+        e.preventDefault();
+        setCreatingInvoice(true);
+        setInvoiceSuccess(false);
+        try {
+            await api.post('/invoices/create', invoiceForm);
+            setInvoiceForm({ courseId: '', amount: '', description: '' });
+            setInvoiceSuccess(true);
+            setTimeout(() => setInvoiceSuccess(false), 3000);
+            fetchInvoices();
+        } catch (err) {
+            alert('Erreur: ' + err.message);
+        }
+        setCreatingInvoice(false);
     };
 
     // Initialize Stripe Connect instance
@@ -84,6 +123,14 @@ export default function ConnectOnboarding() {
             initConnect();
         }
     }, [connectStatus, stripeConnectInstance, initConnect]);
+
+    // Fetch invoices/courses when factures tab is active
+    useEffect(() => {
+        if (activeTab === 'factures') {
+            fetchInvoices();
+            fetchCourses();
+        }
+    }, [activeTab]);
 
     if (loading) {
         return (
@@ -188,6 +235,14 @@ export default function ConnectOnboarding() {
                     <ArrowDownToLine className="w-4 h-4 mr-1.5" />
                     Virements
                 </Button>
+                <Button
+                    variant={activeTab === 'factures' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setActiveTab('factures')}
+                >
+                    <FileText className="w-4 h-4 mr-1.5" />
+                    Factures
+                </Button>
             </div>
 
             {/* Embedded Connect Components */}
@@ -205,6 +260,112 @@ export default function ConnectOnboarding() {
                     {activeTab === 'payouts' && <ConnectPayouts />}
                 </div>
             </ConnectComponentsProvider>
+
+            {/* Factures Tab */}
+            {activeTab === 'factures' && (
+                <div className="space-y-6">
+                    {/* Create Invoice Form */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="text-base flex items-center gap-2">
+                                <Plus className="w-4 h-4" /> Créer une facture
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <form onSubmit={handleCreateInvoice} className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="space-y-2">
+                                        <Label>Cours</Label>
+                                        <select
+                                            className="flex h-11 w-full rounded-lg border border-input bg-secondary/50 px-4 py-2 text-sm"
+                                            value={invoiceForm.courseId}
+                                            onChange={(e) => setInvoiceForm({ ...invoiceForm, courseId: e.target.value })}
+                                            required
+                                        >
+                                            <option value="">Sélectionner un cours</option>
+                                            {courses.filter(c => c.student).map(c => (
+                                                <option key={c.id} value={c.id}>{c.title} — {c.student?.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Montant (€)</Label>
+                                        <Input
+                                            type="number"
+                                            min="1"
+                                            step="0.01"
+                                            placeholder="30.00"
+                                            value={invoiceForm.amount}
+                                            onChange={(e) => setInvoiceForm({ ...invoiceForm, amount: e.target.value })}
+                                            required
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Description</Label>
+                                        <Input
+                                            placeholder="Cours de mars"
+                                            value={invoiceForm.description}
+                                            onChange={(e) => setInvoiceForm({ ...invoiceForm, description: e.target.value })}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <Button type="submit" variant="glow" size="sm" disabled={creatingInvoice}>
+                                        {creatingInvoice ? 'Envoi...' : 'Envoyer la facture'}
+                                    </Button>
+                                    {invoiceSuccess && <span className="text-sm text-emerald-400">✓ Facture envoyée !</span>}
+                                </div>
+                            </form>
+                        </CardContent>
+                    </Card>
+
+                    {/* Invoice List */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="text-base">Factures envoyées</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            {invoices.length === 0 ? (
+                                <p className="text-center text-muted-foreground py-4">Aucune facture envoyée</p>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm">
+                                        <thead>
+                                            <tr className="border-b border-border text-left">
+                                                <th className="pb-3 font-medium text-muted-foreground">Date</th>
+                                                <th className="pb-3 font-medium text-muted-foreground">Cours</th>
+                                                <th className="pb-3 font-medium text-muted-foreground">Parent</th>
+                                                <th className="pb-3 font-medium text-muted-foreground">Montant</th>
+                                                <th className="pb-3 font-medium text-muted-foreground">Statut</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {invoices.map(inv => (
+                                                <tr key={inv.id} className="border-b border-border/50">
+                                                    <td className="py-3">{new Date(inv.createdAt).toLocaleDateString('fr-FR')}</td>
+                                                    <td className="py-3">{inv.course?.title || '—'}</td>
+                                                    <td className="py-3">{inv.parent?.name || '—'}</td>
+                                                    <td className="py-3 font-medium">{inv.amount.toFixed(2)} €</td>
+                                                    <td className="py-3">
+                                                        <Badge variant={inv.status === 'PAID' ? 'success' : 'warning'}
+                                                            className={inv.status === 'PAID'
+                                                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                                                : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                                                            }
+                                                        >
+                                                            {inv.status === 'PAID' ? 'Payé' : 'En attente'}
+                                                        </Badge>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
         </div>
     );
 }
