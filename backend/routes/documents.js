@@ -3,6 +3,7 @@ const { PrismaClient } = require('@prisma/client');
 const multer = require('multer');
 const path = require('path');
 const authMiddleware = require('../middleware/auth');
+const { requireActiveTrial } = require('../middleware/trialGuard');
 const { uploadFile, getSignedUrl, deleteFile } = require('../services/storageService');
 
 const prisma = new PrismaClient();
@@ -56,7 +57,7 @@ async function ensureFolder(name, parentId, courseId, ownerId) {
 }
 
 // POST /api/documents/upload
-router.post('/upload', authMiddleware, upload.single('file'), async (req, res) => {
+router.post('/upload', authMiddleware, requireActiveTrial, upload.single('file'), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No file uploaded' });

@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { PrismaClient } = require('@prisma/client');
 const authMiddleware = require('../middleware/auth');
+const { getTrialStatus } = require('../middleware/trialGuard');
 
 const prisma = new PrismaClient();
 
@@ -35,6 +36,9 @@ router.post('/register', async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, 10);
 
         // Create the parent/professor user
+        const trialStartDate = role === 'PROFESSOR' ? new Date() : undefined;
+        const trialEndDate = role === 'PROFESSOR' ? new Date(Date.now() + 15 * 24 * 60 * 60 * 1000) : undefined;
+
         const user = await prisma.user.create({
             data: {
                 email,
@@ -43,6 +47,9 @@ router.post('/register', async (req, res) => {
                 role,
                 subjects: subjects || [],
                 credits: role === 'PROFESSOR' ? 5 : 0,
+                subscriptionStatus: role === 'PROFESSOR' ? 'TRIAL' : undefined,
+                trialStartDate,
+                trialEndDate,
             },
         });
 
@@ -343,6 +350,9 @@ router.get('/me', authMiddleware, async (req, res) => {
                 zipCode: true,
                 parentId: true,
                 needsPasswordSetup: true,
+                trialStartDate: true,
+                trialEndDate: true,
+                weeklyVideoMinutes: true,
                 createdAt: true,
                 children: {
                     select: {
@@ -372,7 +382,13 @@ router.get('/me', authMiddleware, async (req, res) => {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        res.json({ user });
+        // Compute trial status for professors
+        let trialInfo = null;
+        if (user.role === 'PROFESSOR') {
+            trialInfo = await getTrialStatus(user);
+        }
+
+        res.json({ user, trial: trialInfo });
     } catch (error) {
         console.error('[Auth] Me error:', error);
         res.status(500).json({ error: 'Failed to fetch user' });

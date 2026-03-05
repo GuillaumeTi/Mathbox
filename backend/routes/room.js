@@ -3,8 +3,22 @@ const { PrismaClient } = require('@prisma/client');
 const { AccessToken, RoomServiceClient } = require('livekit-server-sdk');
 const authMiddleware = require('../middleware/auth');
 const { uploadFile } = require('../services/storageService');
+const { getTrialStatus } = require('../middleware/trialGuard');
 
 const prisma = new PrismaClient();
+
+const WEEKLY_VIDEO_LIMIT_MINUTES = 120; // 2 hours per week
+
+// Helper: get last Monday at 00:00
+function getLastMonday() {
+    const now = new Date();
+    const day = now.getDay(); // 0=Sun, 1=Mon, ...
+    const diff = day === 0 ? 6 : day - 1; // days since last Monday
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - diff);
+    monday.setHours(0, 0, 0, 0);
+    return monday;
+}
 
 // POST /api/room/token - Generate LiveKit token
 router.post('/token', authMiddleware, async (req, res) => {
@@ -29,6 +43,7 @@ router.post('/token', authMiddleware, async (req, res) => {
                 code: true,
                 professorId: true,
                 studentId: true,
+                duration: true,
                 whiteboardState: true,
             },
         });
@@ -36,6 +51,52 @@ router.post('/token', authMiddleware, async (req, res) => {
         if (!course) {
             return res.status(403).json({ error: 'Access denied to this room' });
         }
+
+        // ===== VIDEO TIME LIMITER (Professors only) =====
+        if (req.user.role === 'PROFESSOR') {
+            const profUser = await prisma.user.findUnique({
+                where: { id: req.user.id },
+                select: {
+                    id: true, email: true, role: true,
+                    subscriptionStatus: true, trialEndDate: true,
+                    weeklyVideoMinutes: true, weeklyVideoResetAt: true,
+                },
+            });
+
+            const trialStatus = await getTrialStatus(profUser);
+
+            if (trialStatus.trialExpired) {
+                // Reset weekly counter if needed
+                const lastMonday = getLastMonday();
+                let currentMinutes = profUser.weeklyVideoMinutes || 0;
+
+                if (!profUser.weeklyVideoResetAt || new Date(profUser.weeklyVideoResetAt) < lastMonday) {
+                    // Reset counter
+                    currentMinutes = 0;
+                    await prisma.user.update({
+                        where: { id: req.user.id },
+                        data: { weeklyVideoMinutes: 0, weeklyVideoResetAt: lastMonday },
+                    });
+                }
+
+                // Check if limit exceeded
+                if (currentMinutes >= WEEKLY_VIDEO_LIMIT_MINUTES) {
+                    return res.status(403).json({
+                        error: `Limite hebdomadaire de ${WEEKLY_VIDEO_LIMIT_MINUTES} minutes atteinte. Abonnez-vous pour un accès illimité.`,
+                        videoLimitReached: true,
+                        currentMinutes,
+                        limitMinutes: WEEKLY_VIDEO_LIMIT_MINUTES,
+                    });
+                }
+
+                // Accumulate course duration
+                await prisma.user.update({
+                    where: { id: req.user.id },
+                    data: { weeklyVideoMinutes: { increment: course.duration || 60 } },
+                });
+            }
+        }
+        // ===== END VIDEO LIMITER =====
 
         // Room name = course code for consistency
         const roomName = courseCode;

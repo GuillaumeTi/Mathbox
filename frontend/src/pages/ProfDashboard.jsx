@@ -11,7 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import {
     BookOpen, Plus, Video, Clock, Users, Brain, Bell,
     Copy, Trash2, LogOut, ShoppingBag, Cloud, ChevronRight,
-    Calendar, BarChart3, ChevronDown, ChevronUp, MoreVertical, Edit, XCircle, RotateCcw, CheckSquare, Square, Archive
+    Calendar, BarChart3, ChevronDown, ChevronUp, MoreVertical, Edit, XCircle, RotateCcw, CheckSquare, Square, Archive,
+    AlertTriangle, Zap
 } from 'lucide-react';
 import { io } from 'socket.io-client';
 import { api } from '@/lib/api';
@@ -100,7 +101,7 @@ function ActionMenu({ course, onEdit, onCancel, onDelete }) {
 }
 
 export default function ProfDashboard() {
-    const { user, logout } = useAuthStore();
+    const { user, trial, logout, fetchMe } = useAuthStore();
     const { courses, fetchCourses, createCourse, deleteCourse, roomStatuses, fetchRoomStatuses, updateRoomStatus } = useCoursesStore();
     const navigate = useNavigate();
 
@@ -242,6 +243,11 @@ export default function ProfDashboard() {
         };
     }, []);
 
+    // Fetch fresh trial info on mount
+    useEffect(() => {
+        fetchMe();
+    }, []);
+
     const handleCreate = async (e) => {
         e.preventDefault();
         setCreating(true);
@@ -296,6 +302,45 @@ export default function ProfDashboard() {
                     </div>
                 </div>
             </nav>
+
+            {/* Trial Banner */}
+            {trial && trial.subscriptionStatus !== 'ACTIVE' && (
+                <div className={`border-b px-6 py-3 flex items-center justify-between text-sm ${trial.trialExpired
+                        ? 'bg-red-500/10 border-red-500/30 text-red-400'
+                        : trial.daysLeft <= 3
+                            ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                            : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                    }`}>
+                    <div className="flex items-center gap-2">
+                        {trial.trialExpired ? (
+                            <AlertTriangle className="w-4 h-4" />
+                        ) : (
+                            <Zap className="w-4 h-4" />
+                        )}
+                        <span className="font-medium">
+                            {trial.trialExpired
+                                ? 'Essai expiré — Abonnez-vous pour accéder à toutes les fonctionnalités'
+                                : trial.daysLeft <= 3
+                                    ? `⚠️ Votre essai expire dans ${trial.daysLeft} jour${trial.daysLeft > 1 ? 's' : ''} !`
+                                    : `Essai gratuit — ${trial.daysLeft} jour${trial.daysLeft > 1 ? 's' : ''} restant${trial.daysLeft > 1 ? 's' : ''}`
+                            }
+                        </span>
+                    </div>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className={trial.trialExpired
+                            ? 'border-red-500/50 text-red-400 hover:bg-red-500/20'
+                            : trial.daysLeft <= 3
+                                ? 'border-amber-500/50 text-amber-400 hover:bg-amber-500/20'
+                                : 'border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/20'
+                        }
+                        onClick={() => { /* TODO: open subscribe modal in Step 3 */ }}
+                    >
+                        S'abonner
+                    </Button>
+                </div>
+            )}
 
             <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
                 {/* Welcome + Stats Row */}

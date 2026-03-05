@@ -7,6 +7,7 @@ export const useAuthStore = create(
         (set, get) => ({
             user: null,
             token: null,
+            trial: null,
             loading: false,
             error: null,
 
@@ -60,9 +61,9 @@ export const useAuthStore = create(
             fetchMe: async () => {
                 try {
                     const data = await api.get('/auth/me');
-                    set({ user: data.user });
+                    set({ user: data.user, trial: data.trial || null });
                 } catch (err) {
-                    set({ user: null, token: null });
+                    set({ user: null, token: null, trial: null });
                 }
             },
 
@@ -80,7 +81,7 @@ export const useAuthStore = create(
         }),
         {
             name: 'mathbox-auth',
-            partialize: (state) => ({ user: state.user, token: state.token }),
+            partialize: (state) => ({ user: state.user, token: state.token, trial: state.trial }),
         }
     )
 );
