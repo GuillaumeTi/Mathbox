@@ -429,7 +429,7 @@ export default function ParentDashboard() {
                                                 {/* Magic Link */}
                                                 <div>
                                                     <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
-                                                        <Link2 className="w-4 h-4 text-muted-foreground" /> Lien magique
+                                                        <Link2 className="w-4 h-4 text-muted-foreground" /> Lien d'inscription pour votre enfant
                                                     </h3>
                                                     {childMagicLinks[child.id] ? (
                                                         <div className="space-y-2">

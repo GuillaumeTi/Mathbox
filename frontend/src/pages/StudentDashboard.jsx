@@ -71,11 +71,9 @@ export default function StudentDashboard() {
                         <p className="text-muted-foreground">Prêt à apprendre ?</p>
                     </div>
                     <div className="flex gap-2">
-                        <Link to="/shop">
-                            <Button variant="glow" size="sm">
-                                <BookOpen className="w-4 h-4 mr-2" /> Boutique
-                            </Button>
-                        </Link>
+                        <Button variant="ghost" size="sm" onClick={logout} className="text-red-400 hover:text-red-500 hover:bg-red-50">
+                            <LogOut className="w-4 h-4 mr-2" /> Déconnexion
+                        </Button>
                     </div>
                 </div>
 
