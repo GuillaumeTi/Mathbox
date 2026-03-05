@@ -41,6 +41,8 @@ app.use('/api/homeworks', require('./routes/homeworks'));
 app.use('/api/webhooks', require('./routes/webhooks'));
 app.use('/api/shop', require('./routes/shop'));
 app.use('/api/storage', require('./routes/storage'));
+app.use('/api/invite', require('./routes/invite'));
+app.use('/api/invoices', require('./routes/invoices'));
 
 // ============ SOCKET.IO ============
 io.on('connection', (socket) => {

@@ -13,7 +13,8 @@ datasource db {
 // ============ ENUMS ============
 
 enum Role {
-  PROF
+  PROFESSOR
+  PARENT
   STUDENT
 }
 
@@ -52,17 +53,36 @@ enum Recurrence {
   BIWEEKLY
 }
 
+enum InvoiceStatus {
+  PAID
+  PENDING
+}
+
 // ============ MODELS ============
 
 model User {
   id        String   @id @default(uuid())
-  email     String   @unique
+  email     String?  @unique
+  username  String?  @unique
   password  String
   name      String
   role      Role     @default(STUDENT)
   avatarUrl String?
   subjects  String[] @default([])
-  
+
+  // Family relation (Parent -> Children)
+  parentId String?
+  parent   User?   @relation("FamilyTree", fields: [parentId], references: [id])
+  children User[]  @relation("FamilyTree")
+
+  // Address (for billing)
+  street  String?
+  city    String?
+  zipCode String?
+
+  // Magic link first-login
+  needsPasswordSetup Boolean @default(false)
+
   // Billing
   credits            Int     @default(0)
   stripeCustomerId   String?
@@ -78,6 +98,7 @@ model User {
   folders          Folder[]
   aiCredits        AICredit[]
   homeworks        Homework[]  @relation("StudentHomeworks")
+  invoices         Invoice[]
 }
 
 model Course {
@@ -87,7 +108,7 @@ model Course {
   subject     String?
   level       String?
   description String?
-  
+
   // Scheduling
   recurrence  Recurrence   @default(ONCE)
   dayOfWeek   Int?         // 0=Sun, 1=Mon, ..., 6=Sat
@@ -207,6 +228,21 @@ model Homework {
 
   studentId String
   student   User   @relation("StudentHomeworks", fields: [studentId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Invoice {
+  id          String        @id @default(uuid())
+  amount      Float
+  status      InvoiceStatus @default(PENDING)
+  description String?
+  fileUrl     String?       // PDF link
+
+  // Linked to Parent user
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -188,7 +188,7 @@ export default function Cloud() {
         return <File className="w-5 h-5 text-blue-400" />;
     };
 
-    const dashboardPath = user?.role === 'PROF' ? '/dashboard' : '/student';
+    const dashboardPath = user?.role === 'PROFESSOR' ? '/dashboard' : '/student';
 
     // UNIFIED LIST LOGIC
     const unifiedList = [
@@ -233,7 +233,7 @@ export default function Cloud() {
                     </div>
 
                     <div className="flex gap-2">
-                        {user?.role === 'PROF' && (
+                        {user?.role === 'PROFESSOR' && (
                             <Button variant="ghost" size="sm" onClick={handleSync} disabled={syncing} title="Nettoyer les fichiers manquants">
                                 <RefreshCw className={`w-4 h-4 mr-1 ${syncing ? 'animate-spin' : ''}`} /> Sync
                             </Button>

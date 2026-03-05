@@ -109,7 +109,7 @@ export default function Room() {
                     courseId={connectionInfo.courseId}
                     user={user}
                     initialWhiteboardState={connectionInfo.whiteboardState}
-                    onLeave={() => navigate(user.role === 'PROF' ? '/dashboard' : '/student')}
+                    onLeave={() => navigate(user.role === 'PROFESSOR' ? '/dashboard' : '/student')}
                 />
             </ErrorBoundary>
         </LiveKitRoom>
@@ -128,7 +128,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
     const [screenSharing, setScreenSharing] = useState(false);
     const [videoEnabled, setVideoEnabled] = useState(false);
     const [audioEnabled, setAudioEnabled] = useState(false);
-    const isProf = user.role === 'PROF';
+    const isProf = user.role === 'PROFESSOR';
 
     // ===== TAB STATE =====
     const initTabs = () => {

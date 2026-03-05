@@ -5,15 +5,24 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import ProfDashboard from './pages/ProfDashboard';
 import StudentDashboard from './pages/StudentDashboard';
+import ParentDashboard from './pages/ParentDashboard';
 import Room from './pages/Room';
 import Cloud from './pages/Cloud';
 import Shop from './pages/Shop';
+import InvitePage from './pages/InvitePage';
+import MagicLogin from './pages/MagicLogin';
+
+function getRoleHome(role) {
+    if (role === 'PROFESSOR') return '/dashboard';
+    if (role === 'PARENT') return '/parent';
+    return '/student';
+}
 
 function ProtectedRoute({ children, allowedRoles }) {
     const { user, token } = useAuthStore();
     if (!token || !user) return <Navigate to="/login" replace />;
     if (allowedRoles && !allowedRoles.includes(user.role)) {
-        return <Navigate to={user.role === 'PROF' ? '/dashboard' : '/student'} replace />;
+        return <Navigate to={getRoleHome(user.role)} replace />;
     }
     return children;
 }
@@ -21,7 +30,7 @@ function ProtectedRoute({ children, allowedRoles }) {
 function AuthRedirect({ children }) {
     const { user, token } = useAuthStore();
     if (token && user) {
-        return <Navigate to={user.role === 'PROF' ? '/dashboard' : '/student'} replace />;
+        return <Navigate to={getRoleHome(user.role)} replace />;
     }
     return children;
 }
@@ -34,13 +43,20 @@ export default function App() {
                 <Route path="/" element={<Landing />} />
                 <Route path="/login" element={<AuthRedirect><Login /></AuthRedirect>} />
                 <Route path="/register" element={<AuthRedirect><Register /></AuthRedirect>} />
+                <Route path="/invite/:code" element={<InvitePage />} />
+                <Route path="/magic-login/:token" element={<MagicLogin />} />
 
                 {/* Professor */}
                 <Route path="/dashboard" element={
-                    <ProtectedRoute allowedRoles={['PROF']}><ProfDashboard /></ProtectedRoute>
+                    <ProtectedRoute allowedRoles={['PROFESSOR']}><ProfDashboard /></ProtectedRoute>
                 } />
                 <Route path="/shop" element={
-                    <ProtectedRoute allowedRoles={['PROF']}><Shop /></ProtectedRoute>
+                    <ProtectedRoute allowedRoles={['PROFESSOR']}><Shop /></ProtectedRoute>
+                } />
+
+                {/* Parent */}
+                <Route path="/parent" element={
+                    <ProtectedRoute allowedRoles={['PARENT']}><ParentDashboard /></ProtectedRoute>
                 } />
 
                 {/* Student */}

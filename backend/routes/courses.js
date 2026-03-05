@@ -14,7 +14,7 @@ function generateCourseCode(subject) {
 // POST /api/courses - Create a new course (Prof only)
 router.post('/', authMiddleware, async (req, res) => {
     try {
-        if (req.user.role !== 'PROF') {
+        if (req.user.role !== 'PROFESSOR') {
             return res.status(403).json({ error: 'Only professors can create courses' });
         }
 
@@ -111,7 +111,7 @@ router.post('/join', authMiddleware, async (req, res) => {
 router.get('/', authMiddleware, async (req, res) => {
     try {
         let courses;
-        if (req.user.role === 'PROF') {
+        if (req.user.role === 'PROFESSOR') {
             courses = await prisma.course.findMany({
                 where: { professorId: req.user.id },
                 include: {

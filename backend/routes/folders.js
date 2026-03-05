@@ -11,7 +11,7 @@ router.get('/', authMiddleware, async (req, res) => {
         const user = req.user;
 
         // --- TEACHER VIEW ---
-        if (user.role === 'PROF') {
+        if (user.role === 'PROFESSOR') {
             // 1. Root: Show "Private" and "Students"
             if (!parentId) {
                 return res.json({

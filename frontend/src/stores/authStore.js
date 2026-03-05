@@ -10,10 +10,10 @@ export const useAuthStore = create(
             loading: false,
             error: null,
 
-            login: async (email, password) => {
+            login: async (credentials) => {
                 set({ loading: true, error: null });
                 try {
-                    const data = await api.post('/auth/login', { email, password });
+                    const data = await api.post('/auth/login', credentials);
                     set({ user: data.user, token: data.token, loading: false });
                     return data;
                 } catch (err) {
@@ -32,6 +32,29 @@ export const useAuthStore = create(
                     set({ loading: false, error: err.message });
                     throw err;
                 }
+            },
+
+            loginWithMagicLink: async (token) => {
+                set({ loading: true, error: null });
+                try {
+                    const data = await api.post('/auth/magic-login', { token });
+                    set({ user: data.user, token: data.token, loading: false });
+                    return data;
+                } catch (err) {
+                    set({ loading: false, error: err.message });
+                    throw err;
+                }
+            },
+
+            setPassword: async (password) => {
+                const data = await api.post('/auth/set-password', { password });
+                set({ user: { ...get().user, needsPasswordSetup: false } });
+                return data;
+            },
+
+            addChild: async (childName) => {
+                const data = await api.post('/auth/add-child', { childName });
+                return data;
             },
 
             fetchMe: async () => {

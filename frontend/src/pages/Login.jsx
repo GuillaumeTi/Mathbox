@@ -5,10 +5,18 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { BookOpen, Mail, Lock, AlertCircle } from 'lucide-react';
+import { BookOpen, Mail, Lock, User, AlertCircle } from 'lucide-react';
+
+function getRoleHome(role) {
+    if (role === 'PROFESSOR') return '/dashboard';
+    if (role === 'PARENT') return '/parent';
+    return '/student';
+}
 
 export default function Login() {
+    const [mode, setMode] = useState('email'); // 'email' | 'username'
     const [email, setEmail] = useState('');
+    const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const { login, loading, error, clearError } = useAuthStore();
     const navigate = useNavigate();
@@ -16,8 +24,9 @@ export default function Login() {
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
-            const data = await login(email, password);
-            navigate(data.user.role === 'PROF' ? '/dashboard' : '/student');
+            const payload = mode === 'email' ? { email, password } : { username, password };
+            const data = await login(payload);
+            navigate(getRoleHome(data.user.role));
         } catch (err) { }
     };
 
@@ -39,6 +48,24 @@ export default function Login() {
                 </CardHeader>
 
                 <CardContent>
+                    {/* Toggle email / username */}
+                    <div className="flex gap-2 mb-4">
+                        <button
+                            type="button"
+                            onClick={() => { setMode('email'); clearError(); }}
+                            className={`flex-1 py-2 text-sm rounded-lg border transition-all ${mode === 'email' ? 'bg-primary/10 border-primary/50 text-primary font-medium' : 'border-border text-muted-foreground hover:border-primary/30'}`}
+                        >
+                            <Mail className="w-4 h-4 inline mr-1.5" />Email
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setMode('username'); clearError(); }}
+                            className={`flex-1 py-2 text-sm rounded-lg border transition-all ${mode === 'username' ? 'bg-primary/10 border-primary/50 text-primary font-medium' : 'border-border text-muted-foreground hover:border-primary/30'}`}
+                        >
+                            <User className="w-4 h-4 inline mr-1.5" />Nom d'utilisateur
+                        </button>
+                    </div>
+
                     <form onSubmit={handleSubmit} className="space-y-4">
                         {error && (
                             <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg p-3">
@@ -47,21 +74,39 @@ export default function Login() {
                             </div>
                         )}
 
-                        <div className="space-y-2">
-                            <Label htmlFor="email">Email</Label>
-                            <div className="relative">
-                                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                                <Input
-                                    id="email"
-                                    type="email"
-                                    placeholder="prof@exemple.fr"
-                                    value={email}
-                                    onChange={(e) => { setEmail(e.target.value); clearError(); }}
-                                    className="pl-10"
-                                    required
-                                />
+                        {mode === 'email' ? (
+                            <div className="space-y-2">
+                                <Label htmlFor="email">Email</Label>
+                                <div className="relative">
+                                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                    <Input
+                                        id="email"
+                                        type="email"
+                                        placeholder="prof@exemple.fr"
+                                        value={email}
+                                        onChange={(e) => { setEmail(e.target.value); clearError(); }}
+                                        className="pl-10"
+                                        required
+                                    />
+                                </div>
                             </div>
-                        </div>
+                        ) : (
+                            <div className="space-y-2">
+                                <Label htmlFor="username">Nom d'utilisateur</Label>
+                                <div className="relative">
+                                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                    <Input
+                                        id="username"
+                                        type="text"
+                                        placeholder="leo3456"
+                                        value={username}
+                                        onChange={(e) => { setUsername(e.target.value); clearError(); }}
+                                        className="pl-10"
+                                        required
+                                    />
+                                </div>
+                            </div>
+                        )}
 
                         <div className="space-y-2">
                             <Label htmlFor="password">Mot de passe</Label>

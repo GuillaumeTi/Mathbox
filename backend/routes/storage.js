@@ -135,7 +135,7 @@ router.get('/folder/:folderId/download', authMiddleware, async (req, res) => {
 // POST /api/storage/sync - Clean up DB records for missing files
 router.post('/sync', authMiddleware, async (req, res) => {
     try {
-        if (req.user.role !== 'PROF') {
+        if (req.user.role !== 'PROFESSOR') {
             return res.status(403).json({ error: 'Access denied' });
         }
 

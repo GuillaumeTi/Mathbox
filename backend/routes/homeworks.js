@@ -23,13 +23,13 @@ router.post('/', authMiddleware, async (req, res) => {
             return res.status(404).json({ error: 'Course not found' });
         }
 
-        if (req.user.role === 'PROF' && course.professorId !== req.user.id) {
+        if (req.user.role === 'PROFESSOR' && course.professorId !== req.user.id) {
             return res.status(403).json({ error: 'Access denied' });
         }
 
         // If user is STUDENT, they typically don't assign homework. 
         // But maybe self-assigned? For now, restrict to PROF.
-        if (req.user.role !== 'PROF') {
+        if (req.user.role !== 'PROFESSOR') {
             return res.status(403).json({ error: 'Only professors can assign homework' });
         }
 
@@ -73,7 +73,7 @@ router.get('/', authMiddleware, async (req, res) => {
 
         if (req.user.role === 'STUDENT') {
             where.studentId = req.user.id;
-        } else if (req.user.role === 'PROF') {
+        } else if (req.user.role === 'PROFESSOR') {
             // Prof sees homeworks for their courses
             where.course = { professorId: req.user.id };
         }

@@ -144,7 +144,7 @@ router.post('/credits/purchase', authMiddleware, async (req, res) => {
             // EXECUTE CURRENT MOCK LOGIC (Immediate Success for testing)
             console.log("⚠️ Payment Mode: MOCK (No credentials found)");
 
-            if (req.user.role !== 'PROF') {
+            if (req.user.role !== 'PROFESSOR') {
                 // return res.status(403).json({ error: 'Only professors can purchase credits' });
             }
 

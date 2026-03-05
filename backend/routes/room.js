@@ -99,7 +99,7 @@ router.post('/token', authMiddleware, async (req, res) => {
 // GET /api/room/status - Check room statuses (Prof)
 router.get('/status', authMiddleware, async (req, res) => {
     try {
-        if (req.user.role !== 'PROF') {
+        if (req.user.role !== 'PROFESSOR') {
             return res.status(403).json({ error: 'Professors only' });
         }
 
@@ -302,7 +302,7 @@ router.get('/whiteboard/:courseId', authMiddleware, async (req, res) => {
 // POST /api/room/whiteboard/:courseId - Save whiteboard state (Prof only)
 router.post('/whiteboard/:courseId', authMiddleware, async (req, res) => {
     try {
-        if (req.user.role !== 'PROF') {
+        if (req.user.role !== 'PROFESSOR') {
             return res.status(403).json({ error: 'Only professors can save whiteboard state' });
         }
 

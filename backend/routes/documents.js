@@ -166,7 +166,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
             // If user is student, maybe "Student_{ID}"? 
             // The prompt specifically asked for "Teacher_{ID}" structure. 
             // We'll use the uploader's ID as the root.
-            const rootPrefix = req.user.role === 'PROF' ? 'Teacher' : 'User';
+            const rootPrefix = req.user.role === 'PROFESSOR' ? 'Teacher' : 'User';
             const rootId = req.user.id;
             let folderPath = '';
 
