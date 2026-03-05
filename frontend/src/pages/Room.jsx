@@ -205,8 +205,9 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
         }
         setActiveTabId(tabId);
         if (isProf) {
-            // Broadcast tab switch WITH the departing tab's snapshot so students have the drawing data
-            sendDataPacketFn({ type: 'tab-switch', tabId, fromTabId: activeTabId, fromCanvasData: currentSnapshot });
+            // Broadcast tab switch - we DO NOT send fromCanvasData here because it violates WebRTC size limits.
+            // Students will take their own local snapshot of the departing tab.
+            sendDataPacketFn({ type: 'tab-switch', tabId, fromTabId: activeTabId });
             debouncedSave();
         }
     }, [activeTabId, isProf, debouncedSave]);
@@ -232,14 +233,12 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
     useEffect(() => {
         if (!room || !isProf) return;
         const handleNewParticipant = () => {
-            let currentSnapshot = null;
-            if (whiteboardRef.current?.getCanvasSnapshot) {
-                currentSnapshot = whiteboardRef.current.getCanvasSnapshot();
-            }
+            // Force a DB save so the new student gets the latest drawings if they refresh
+            saveWhiteboard();
             sendDataPacketFn({
                 type: 'tab-sync',
                 activeTabId,
-                tabs: tabs.map(t => t.id === activeTabId ? { ...t, canvasData: currentSnapshot } : t),
+                tabsInfo: tabs.map(t => ({ id: t.id, title: t.title, background: t.background })), // No canvasData to respect WebRTC limits
             });
         };
         room.on(RoomEvent.ParticipantConnected, handleNewParticipant);
@@ -326,13 +325,25 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
                 else if (data.type === 'file') setMessages(prev => [...prev, { sender: data.senderName, text: data.filename, url: data.url, filename: data.filename, size: data.size, type: 'file', time, isMe: false }]);
                 // Tab events (from teacher)
                 else if (data.type === 'tab-sync') {
-                    setTabs(data.tabs);
+                    if (data.tabsInfo) {
+                        setTabs(prev => {
+                            // Merge incoming tabsInfo with our local canvasData
+                            const nextTabs = data.tabsInfo.map(tInfo => {
+                                const exist = prev.find(p => p.id === tInfo.id);
+                                return { ...tInfo, canvasData: exist ? exist.canvasData : null };
+                            });
+                            return nextTabs;
+                        });
+                    }
                     setActiveTabId(data.activeTabId);
                 }
                 else if (data.type === 'tab-switch') {
-                    // Store the teacher's canvas snapshot for the tab they just left
-                    if (data.fromTabId && data.fromCanvasData) {
-                        setTabs(prev => prev.map(t => t.id === data.fromTabId ? { ...t, canvasData: data.fromCanvasData } : t));
+                    // Store the STUDENT'S local canvas snapshot for the tab we just left
+                    if (data.fromTabId) {
+                        const localSnapshot = whiteboardRef.current?.getCanvasSnapshot?.();
+                        if (localSnapshot) {
+                            setTabs(prev => prev.map(t => t.id === data.fromTabId ? { ...t, canvasData: localSnapshot } : t));
+                        }
                     }
                     setActiveTabId(data.tabId);
                 }
