@@ -217,6 +217,11 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
         }
     }, [activeTabId, isProf, debouncedSave]);
 
+    const changeBackground = useCallback((tabId, bg) => {
+        setTabs(prev => prev.map(t => t.id === tabId ? { ...t, background: bg } : t));
+        debouncedSave();
+    }, [debouncedSave]);
+
     // We need a ref-stable sendDataPacket for tab actions
     const sendDataPacketFnRef = useRef(null);
     const sendDataPacketFn = (...args) => sendDataPacketFnRef.current?.(...args);
@@ -354,6 +359,9 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
                     }
                     setActiveTabId(data.tabId);
                 }
+                else if (data.type === 'background') {
+                    setTabs(prev => prev.map(t => t.id === data.tabId ? { ...t, background: data.bg } : t));
+                }
                 else if (data.type === 'tab-add') setTabs(prev => [...prev, { ...data.tab, canvasData: null }]);
                 else if (data.type === 'tab-close') setTabs(prev => {
                     const next = prev.filter(t => t.id !== data.tabId);
@@ -416,6 +424,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
                                         isProf={isProf}
                                         activeTabId={activeTabId}
                                         tabData={tabs.find(t => t.id === activeTabId)}
+                                        onBackgroundChange={changeBackground}
                                     />
                                 </div>
                             </div>
@@ -497,7 +506,7 @@ function TabBar({ tabs, activeTabId, isProf, onSwitch, onAdd, onClose, onRename 
 }
 
 // ===== WHITEBOARD COMPONENT =====
-const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, locked, transparent, isProf, activeTabId, tabData }, ref) {
+const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, locked, transparent, isProf, activeTabId, tabData, onBackgroundChange }, ref) {
     const room = useRoomContext();
     const canvasRef = useRef(null);
     const previewCanvasRef = useRef(null);
@@ -733,7 +742,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                 <input type="range" min={1} max={10} value={thickness} onChange={e => setThickness(parseInt(e.target.value))} className="w-10 rotate-[-90deg] mt-4 mb-4" />
                 <div className="w-8 border-t border-gray-300 dark:border-gray-600 my-2" />
                 {!transparent && isProf && Object.entries(BG_STYLES).map(([id, bg]) => (
-                    <button key={id} onClick={() => { setBackground(id); sendData({ type: 'background', tabId: activeTabId, bg: id }); }} className={`w-8 h-8 rounded border-2 transition-colors ${background === id ? 'border-primary' : 'border-gray-300 dark:border-gray-600'}`} style={{ background: id === 'white' ? '#fff' : id === 'grid' ? '#f0f0f0' : '#f5f0e8' }}>{id === 'grid' && <Grid3X3 className="w-4 h-4 text-gray-400 mx-auto" />}</button>
+                    <button key={id} onClick={() => { setBackground(id); sendData({ type: 'background', tabId: activeTabId, bg: id }); if (onBackgroundChange) onBackgroundChange(activeTabId, id); }} className={`w-8 h-8 rounded border-2 transition-colors ${background === id ? 'border-primary' : 'border-gray-300 dark:border-gray-600'}`} style={{ background: id === 'white' ? '#fff' : id === 'grid' ? '#f0f0f0' : '#f5f0e8' }}>{id === 'grid' && <Grid3X3 className="w-4 h-4 text-gray-400 mx-auto" />}</button>
                 ))}
                 <div className="mt-auto" />
                 <button onClick={() => { if (confirm('Tout effacer ?')) { clearCanvas(); clearPreview(); sendData({ type: 'clear', tabId: activeTabId }); } }} className="w-10 h-10 rounded-lg text-red-500 hover:bg-red-100 flex items-center justify-center"><Trash2 className="w-5 h-5" /></button>
