@@ -198,10 +198,15 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
     const switchTab = useCallback((tabId) => {
         if (tabId === activeTabId) return;
         // Snapshot current canvas before switching
-        let currentSnapshot = null;
-        if (whiteboardRef.current?.getCanvasSnapshot) {
-            currentSnapshot = whiteboardRef.current.getCanvasSnapshot();
-            setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, canvasData: currentSnapshot } : t));
+        try {
+            if (whiteboardRef.current?.getCanvasSnapshot) {
+                const currentSnapshot = whiteboardRef.current.getCanvasSnapshot();
+                if (currentSnapshot) {
+                    setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, canvasData: currentSnapshot } : t));
+                }
+            }
+        } catch (e) {
+            console.error("Failed to snapshot canvas before switching", e);
         }
         setActiveTabId(tabId);
         if (isProf) {
@@ -340,10 +345,12 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
                 else if (data.type === 'tab-switch') {
                     // Store the STUDENT'S local canvas snapshot for the tab we just left
                     if (data.fromTabId) {
-                        const localSnapshot = whiteboardRef.current?.getCanvasSnapshot?.();
-                        if (localSnapshot) {
-                            setTabs(prev => prev.map(t => t.id === data.fromTabId ? { ...t, canvasData: localSnapshot } : t));
-                        }
+                        try {
+                            const localSnapshot = whiteboardRef.current?.getCanvasSnapshot?.();
+                            if (localSnapshot) {
+                                setTabs(prev => prev.map(t => t.id === data.fromTabId ? { ...t, canvasData: localSnapshot } : t));
+                            }
+                        } catch (e) { console.error("Snapshot failed on remote tab-switch", e); }
                     }
                     setActiveTabId(data.tabId);
                 }
@@ -516,7 +523,10 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
 
     // Expose getCanvasSnapshot to parent via ref
     React.useImperativeHandle(ref, () => ({
-        getCanvasSnapshot: () => canvasRef.current?.toDataURL('image/png') || null,
+        getCanvasSnapshot: () => {
+            try { return canvasRef.current?.toDataURL('image/png') || null; }
+            catch (e) { return null; }
+        },
     }));
 
     // Restore canvas when tab changes OR when receiving new sync data for the same tab
@@ -614,7 +624,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                 else if (data.type === 'clear') clearCanvas();
                 else if (data.type === 'text-live') setRemoteText({ x: data.x1, y: data.y1, text: data.text, color: data.color, size: data.thickness * 6 });
                 else if (data.type === 'text-commit') { applyDrawing(data); setRemoteText(null); }
-                else if (data.type === 'image') { const img = new Image(); img.onload = () => { canvasRef.current.getContext('2d').drawImage(img, data.x, data.y, data.w, data.h) }; img.src = data.src; }
+                else if (data.type === 'image') { const img = new Image(); img.crossOrigin = "anonymous"; img.onload = () => { canvasRef.current.getContext('2d').drawImage(img, data.x, data.y, data.w, data.h) }; img.src = data.src; }
                 else if (data.type === 'background') setBackground(data.bg);
             } catch (e) { }
         };
@@ -693,6 +703,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
 
     const handleCloudImageSelect = (file) => {
         const img = new Image();
+        img.crossOrigin = "anonymous";
         img.onload = () => {
             const w = Math.min(img.width, 400); const h = img.height * (w / img.width);
             const x = (canvasRef.current.width - w) / 2; const y = (canvasRef.current.height - h) / 2;
