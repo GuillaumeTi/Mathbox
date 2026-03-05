@@ -442,10 +442,11 @@ function TabBar({ tabs, activeTabId, isProf, onSwitch, onAdd, onClose, onRename 
             {tabs.map(tab => (
                 <div
                     key={tab.id}
-                    onClick={() => onSwitch(tab.id)}
-                    className={`flex items-center gap-1.5 px-3 h-7 rounded-md text-xs font-medium cursor-pointer transition-all whitespace-nowrap select-none ${tab.id === activeTabId
-                        ? 'bg-primary text-white shadow-sm'
-                        : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                    onClick={() => { if (isProf) onSwitch(tab.id); }}
+                    className={`flex items-center gap-1.5 px-3 h-7 rounded-md text-xs font-medium transition-all whitespace-nowrap select-none ${isProf ? 'cursor-pointer' : 'cursor-default'
+                        } ${tab.id === activeTabId
+                            ? 'bg-primary text-white shadow-sm'
+                            : `bg-gray-800 text-gray-400 ${isProf ? 'hover:bg-gray-700 hover:text-gray-200' : ''}`
                         }`}
                 >
                     {editingId === tab.id ? (
@@ -496,6 +497,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
     const imageInputRef = useRef(null);
     const [cursorPos, setCursorPos] = useState(null);
     const prevTabIdRef = useRef(null); // null so first mount triggers canvas restore
+    const lastDrawnDataRef = useRef(null);
 
     // Cloud UI State
     const [showSourceModal, setShowSourceModal] = useState(false);
@@ -506,10 +508,11 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
         getCanvasSnapshot: () => canvasRef.current?.toDataURL('image/png') || null,
     }));
 
-    // Restore canvas when tab changes
+    // Restore canvas when tab changes OR when receiving new sync data for the same tab
     useEffect(() => {
-        if (prevTabIdRef.current === activeTabId) return;
+        if (prevTabIdRef.current === activeTabId && lastDrawnDataRef.current === tabData?.canvasData) return;
         prevTabIdRef.current = activeTabId;
+        lastDrawnDataRef.current = tabData?.canvasData;
         const canvas = canvasRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
@@ -606,7 +609,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
         };
         room.on(RoomEvent.DataReceived, handler);
         return () => room.off(RoomEvent.DataReceived, handler);
-    }, [room, localParticipant]);
+    }, [room, localParticipant, activeTabId]);
 
     const getPos = (e) => { const rect = canvasRef.current.getBoundingClientRect(); return { x: (e.touches ? e.touches[0].clientX : e.clientX) - rect.left, y: (e.touches ? e.touches[0].clientY : e.clientY) - rect.top }; };
 
