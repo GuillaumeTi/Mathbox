@@ -17,6 +17,8 @@ import {
 import { io } from 'socket.io-client';
 import { api } from '@/lib/api';
 import HomeworkModal from '@/components/HomeworkModal';
+import SubscribeModal from '@/components/SubscribeModal';
+import BuyCreditsModal from '@/components/BuyCreditsModal';
 
 const DAYS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 
@@ -124,6 +126,10 @@ export default function ProfDashboard() {
 
     // Delete confirmation
     const [courseToDelete, setCourseToDelete] = useState(null);
+
+    // Stripe modals
+    const [showSubscribe, setShowSubscribe] = useState(false);
+    const [showBuyCredits, setShowBuyCredits] = useState(false);
 
     // Handlers
     const toggleExpand = async (courseId) => {
@@ -306,10 +312,10 @@ export default function ProfDashboard() {
             {/* Trial Banner */}
             {trial && trial.subscriptionStatus !== 'ACTIVE' && (
                 <div className={`border-b px-6 py-3 flex items-center justify-between text-sm ${trial.trialExpired
-                        ? 'bg-red-500/10 border-red-500/30 text-red-400'
-                        : trial.daysLeft <= 3
-                            ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-                            : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                    ? 'bg-red-500/10 border-red-500/30 text-red-400'
+                    : trial.daysLeft <= 3
+                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                        : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
                     }`}>
                     <div className="flex items-center gap-2">
                         {trial.trialExpired ? (
@@ -335,7 +341,7 @@ export default function ProfDashboard() {
                                 ? 'border-amber-500/50 text-amber-400 hover:bg-amber-500/20'
                                 : 'border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/20'
                         }
-                        onClick={() => { /* TODO: open subscribe modal in Step 3 */ }}
+                        onClick={() => setShowSubscribe(true)}
                     >
                         S'abonner
                     </Button>
@@ -375,7 +381,7 @@ export default function ProfDashboard() {
                                 <p className="text-xs text-muted-foreground">Heures / mois</p>
                             </div>
                         </Card>
-                        <Card className="px-5 py-3 flex items-center gap-3">
+                        <Card className="px-5 py-3 flex items-center gap-3 cursor-pointer hover:border-amber-500/50 transition-colors" onClick={() => setShowBuyCredits(true)}>
                             <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
                                 <Brain className="w-5 h-5 text-amber-400" />
                             </div>
@@ -695,6 +701,9 @@ export default function ProfDashboard() {
                     </DialogContent>
                 </Dialog>
             )}
+
+            <SubscribeModal isOpen={showSubscribe} onClose={() => setShowSubscribe(false)} />
+            <BuyCreditsModal isOpen={showBuyCredits} onClose={() => setShowBuyCredits(false)} />
         </div>
     );
 }
