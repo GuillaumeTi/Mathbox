@@ -86,7 +86,19 @@ model User {
   // Billing
   credits            Int     @default(0)
   stripeCustomerId   String?
-  subscriptionStatus String? // ACTIVE, INACTIVE, TRIAL
+  subscriptionStatus String? // ACTIVE, INACTIVE, TRIAL, EXPIRED
+
+  // Stripe Connect (for Professors receiving marketplace payments)
+  stripeAccountId      String?
+  stripeSubscriptionId String?
+
+  // Trial tracking
+  trialStartDate DateTime?
+  trialEndDate   DateTime?
+
+  // Weekly video limiter (minutes accumulated, resets every Monday)
+  weeklyVideoMinutes Int       @default(0)
+  weeklyVideoResetAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -99,6 +111,8 @@ model User {
   aiCredits        AICredit[]
   homeworks        Homework[]  @relation("StudentHomeworks")
   invoices         Invoice[]
+  sentCourseInvoices     CourseInvoice[] @relation("ProfInvoices")
+  receivedCourseInvoices CourseInvoice[] @relation("ParentInvoices")
 }
 
 model Course {
@@ -126,10 +140,11 @@ model Course {
   studentId   String?
   student     User?    @relation("StudentCourses", fields: [studentId], references: [id])
 
-  sessions    Session[]
-  documents   Document[]
-  homeworks   Homework[]
-  folders     Folder[]
+  sessions       Session[]
+  documents      Document[]
+  homeworks      Homework[]
+  folders        Folder[]
+  courseInvoices CourseInvoice[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -244,6 +259,28 @@ model Invoice {
   userId String
   user   User   @relation(fields: [userId], references: [id])
 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CourseInvoice {
+  id          String        @id @default(uuid())
+  amount      Float
+  status      InvoiceStatus @default(PENDING)
+  description String?
+
+  // Relations
+  courseId    String
+  course     Course @relation(fields: [courseId], references: [id])
+  professorId String
+  professor  User   @relation("ProfInvoices", fields: [professorId], references: [id])
+  parentId   String
+  parent     User   @relation("ParentInvoices", fields: [parentId], references: [id])
+
+  // Stripe
+  stripePaymentIntentId String?
+
+  paidAt    DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

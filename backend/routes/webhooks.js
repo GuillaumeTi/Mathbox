@@ -211,4 +211,118 @@ function express_raw() {
     };
 }
 
+// ============ STRIPE WEBHOOK ============
+const { getStripe } = require('../services/stripe');
+
+router.post('/stripe', async (req, res) => {
+    const stripe = getStripe();
+    if (!stripe) return res.status(400).json({ error: 'Stripe not configured' });
+
+    const sig = req.headers['stripe-signature'];
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+    let event;
+    try {
+        if (webhookSecret) {
+            event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+        } else {
+            // Dev mode — no signature check
+            event = JSON.parse(req.body.toString());
+            console.warn('[Stripe Webhook] No STRIPE_WEBHOOK_SECRET set — skipping signature verification');
+        }
+    } catch (err) {
+        console.error('[Stripe Webhook] Signature verification failed:', err.message);
+        return res.status(400).json({ error: 'Webhook signature verification failed' });
+    }
+
+    console.log(`[Stripe Webhook] Event: ${event.type}`);
+
+    try {
+        switch (event.type) {
+            // === Subscription lifecycle ===
+            case 'customer.subscription.updated': {
+                const subscription = event.data.object;
+                const customerId = subscription.customer;
+                const user = await prisma.user.findFirst({ where: { stripeCustomerId: customerId } });
+                if (user) {
+                    const status = subscription.status === 'active' ? 'ACTIVE' :
+                        subscription.status === 'trialing' ? 'TRIAL' : 'EXPIRED';
+                    await prisma.user.update({
+                        where: { id: user.id },
+                        data: {
+                            subscriptionStatus: status,
+                            stripeSubscriptionId: subscription.id,
+                        },
+                    });
+                    console.log(`[Stripe Webhook] Subscription ${status} for user ${user.id}`);
+                }
+                break;
+            }
+
+            case 'customer.subscription.deleted': {
+                const subscription = event.data.object;
+                const customerId = subscription.customer;
+                const user = await prisma.user.findFirst({ where: { stripeCustomerId: customerId } });
+                if (user) {
+                    await prisma.user.update({
+                        where: { id: user.id },
+                        data: {
+                            subscriptionStatus: 'EXPIRED',
+                            stripeSubscriptionId: null,
+                        },
+                    });
+                    console.log(`[Stripe Webhook] Subscription deleted for user ${user.id}`);
+                }
+                break;
+            }
+
+            // === One-off payments (credits, course invoices) ===
+            case 'payment_intent.succeeded': {
+                const paymentIntent = event.data.object;
+                const metadata = paymentIntent.metadata || {};
+
+                // AI Credit purchase
+                if (metadata.type === 'credits' && metadata.userId && metadata.credits) {
+                    const creditAmount = parseInt(metadata.credits);
+                    await prisma.user.update({
+                        where: { id: metadata.userId },
+                        data: { credits: { increment: creditAmount } },
+                    });
+                    await prisma.aICredit.create({
+                        data: {
+                            amount: creditAmount,
+                            type: 'PURCHASE',
+                            description: `Achat de ${creditAmount} crédits IA`,
+                            userId: metadata.userId,
+                        },
+                    });
+                    console.log(`[Stripe Webhook] ${creditAmount} credits added for user ${metadata.userId}`);
+                }
+
+                // Course invoice payment (marketplace)
+                if (metadata.type === 'course_invoice' && metadata.courseInvoiceId) {
+                    await prisma.courseInvoice.update({
+                        where: { id: metadata.courseInvoiceId },
+                        data: {
+                            status: 'PAID',
+                            stripePaymentIntentId: paymentIntent.id,
+                            paidAt: new Date(),
+                        },
+                    });
+                    console.log(`[Stripe Webhook] CourseInvoice ${metadata.courseInvoiceId} paid`);
+                }
+                break;
+            }
+
+            default:
+                console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`);
+        }
+
+        res.json({ received: true });
+    } catch (error) {
+        console.error('[Stripe Webhook] Processing error:', error);
+        res.status(500).json({ error: 'Webhook processing failed' });
+    }
+});
+
 module.exports = router;

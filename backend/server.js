@@ -18,6 +18,11 @@ app.set('io', io);
 
 // Middleware
 app.use(cors());
+
+// Stripe webhook needs raw body BEFORE express.json() parses it
+const express_module = require('express');
+app.use('/api/webhooks/stripe', express_module.raw({ type: 'application/json' }));
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
