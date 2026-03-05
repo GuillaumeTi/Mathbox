@@ -343,6 +343,7 @@ router.get('/me', authMiddleware, async (req, res) => {
                         id: true,
                         name: true,
                         username: true,
+                        needsPasswordSetup: true,
                         coursesAsStudent: {
                             select: {
                                 id: true,
