@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
     BookOpen, LogOut, FileText, User, Users, Brain, Plus, ChevronDown, ChevronRight,
-    Copy, Check, MapPin, CreditCard, CheckSquare, Calendar, Clock, AlertCircle, ExternalLink
+    Copy, Check, MapPin, CreditCard, CheckSquare, Calendar, Clock, AlertCircle, ExternalLink, Link2
 } from 'lucide-react';
 
 const DAYS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
@@ -43,6 +43,11 @@ export default function ParentDashboard() {
     const [addingChild, setAddingChild] = useState(false);
     const [copied, setCopied] = useState(false);
 
+    // Magic link per child
+    const [childMagicLinks, setChildMagicLinks] = useState({});
+    const [loadingMagicLink, setLoadingMagicLink] = useState(null);
+    const [copiedChildLink, setCopiedChildLink] = useState(null);
+
     // Add course code
     const [showAddCourse, setShowAddCourse] = useState(false);
     const [courseCode, setCourseCode] = useState('');
@@ -72,18 +77,39 @@ export default function ParentDashboard() {
         }
     }, [tab]);
 
-    const fetchHomeworks = async (childId) => {
+    const fetchHomeworks = async () => {
         try {
-            const childCourses = children.find(c => c.id === childId)?.coursesAsStudent || [];
-            const allHomeworks = [];
-            for (const course of childCourses) {
-                const data = await api.get(`/homeworks/${course.id}`);
-                if (data.homeworks) allHomeworks.push(...data.homeworks.map(h => ({ ...h, courseTitle: course.title })));
+            const data = await api.get('/homeworks');
+            if (data.homeworks) {
+                // Group homeworks by studentId
+                const grouped = {};
+                for (const hw of data.homeworks) {
+                    const sid = hw.studentId || hw.student?.id;
+                    if (!grouped[sid]) grouped[sid] = [];
+                    grouped[sid].push({ ...hw, courseTitle: hw.course?.title || '' });
+                }
+                setHomeworks(grouped);
             }
-            setHomeworks(prev => ({ ...prev, [childId]: allHomeworks }));
         } catch (err) {
             console.error(err);
         }
+    };
+
+    const generateMagicLink = async (childId) => {
+        setLoadingMagicLink(childId);
+        try {
+            const data = await api.post(`/auth/magic-link/${childId}`);
+            setChildMagicLinks(prev => ({ ...prev, [childId]: data }));
+        } catch (err) {
+            console.error(err);
+        }
+        setLoadingMagicLink(null);
+    };
+
+    const copyChildLink = (childId, link) => {
+        navigator.clipboard.writeText(window.location.origin + link);
+        setCopiedChildLink(childId);
+        setTimeout(() => setCopiedChildLink(null), 2000);
     };
 
     const handleSaveProfile = async (e) => {
@@ -383,7 +409,7 @@ export default function ParentDashboard() {
                                         <button onClick={() => {
                                             const newId = expandedChild === child.id ? null : child.id;
                                             setExpandedChild(newId);
-                                            if (newId && !homeworks[child.id]) fetchHomeworks(child.id);
+                                            if (newId && Object.keys(homeworks).length === 0) fetchHomeworks();
                                         }}
                                             className="w-full flex items-center justify-between">
                                             <div className="flex items-center gap-3">
@@ -400,6 +426,34 @@ export default function ParentDashboard() {
 
                                         {expandedChild === child.id && (
                                             <div className="mt-4 space-y-4 border-t border-border pt-4">
+                                                {/* Magic Link */}
+                                                <div>
+                                                    <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
+                                                        <Link2 className="w-4 h-4 text-muted-foreground" /> Lien magique
+                                                    </h3>
+                                                    {childMagicLinks[child.id] ? (
+                                                        <div className="space-y-2">
+                                                            <div className="flex items-center gap-2">
+                                                                <Input readOnly value={window.location.origin + childMagicLinks[child.id].magicLink} className="font-mono text-xs" />
+                                                                <Button size="icon" variant="outline" onClick={() => copyChildLink(child.id, childMagicLinks[child.id].magicLink)}>
+                                                                    {copiedChildLink === child.id ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                                                                </Button>
+                                                            </div>
+                                                            <p className="text-xs text-muted-foreground">
+                                                                {childMagicLinks[child.id].needsPasswordSetup
+                                                                    ? '⏳ En attente — l\'enfant n\'a pas encore créé son mot de passe'
+                                                                    : '✅ L\'enfant a déjà configuré son compte'
+                                                                }
+                                                            </p>
+                                                        </div>
+                                                    ) : (
+                                                        <Button variant="outline" size="sm" onClick={() => generateMagicLink(child.id)} disabled={loadingMagicLink === child.id}>
+                                                            <Link2 className="w-4 h-4 mr-1" />
+                                                            {loadingMagicLink === child.id ? 'Génération...' : 'Générer un lien magique'}
+                                                        </Button>
+                                                    )}
+                                                </div>
+
                                                 {/* Courses */}
                                                 <div>
                                                     <h3 className="text-sm font-medium mb-2 flex items-center gap-2">

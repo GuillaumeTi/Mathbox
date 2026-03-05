@@ -288,6 +288,35 @@ router.post('/add-child', authMiddleware, async (req, res) => {
     }
 });
 
+// POST /api/auth/magic-link/:childId
+// Regenerate a magic link for a child (Parent only)
+router.post('/magic-link/:childId', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'PARENT') {
+            return res.status(403).json({ error: 'Only parents can generate magic links' });
+        }
+
+        const child = await prisma.user.findFirst({
+            where: { id: req.params.childId, parentId: req.user.id, role: 'STUDENT' },
+        });
+        if (!child) return res.status(404).json({ error: 'Child not found' });
+
+        const magicToken = jwt.sign(
+            { studentId: child.id, purpose: 'magic-login' },
+            process.env.JWT_SECRET,
+            { expiresIn: '30d' }
+        );
+
+        res.json({
+            magicLink: `/magic-login/${magicToken}`,
+            needsPasswordSetup: child.needsPasswordSetup,
+        });
+    } catch (error) {
+        console.error('[Auth] Magic link generation error:', error);
+        res.status(500).json({ error: 'Failed to generate magic link' });
+    }
+});
+
 // GET /api/auth/me
 router.get('/me', authMiddleware, async (req, res) => {
     try {

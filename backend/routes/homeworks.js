@@ -76,6 +76,17 @@ router.get('/', authMiddleware, async (req, res) => {
         } else if (req.user.role === 'PROFESSOR') {
             // Prof sees homeworks for their courses
             where.course = { professorId: req.user.id };
+        } else if (req.user.role === 'PARENT') {
+            // Parent sees homeworks for all their children
+            const children = await prisma.user.findMany({
+                where: { parentId: req.user.id, role: 'STUDENT' },
+                select: { id: true },
+            });
+            const childIds = children.map(c => c.id);
+            if (childIds.length === 0) return res.json({ homeworks: [] });
+            where.studentId = { in: childIds };
+        } else {
+            return res.json({ homeworks: [] });
         }
 
         if (courseId) {
