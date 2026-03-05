@@ -301,6 +301,12 @@ router.post('/magic-link/:childId', authMiddleware, async (req, res) => {
         });
         if (!child) return res.status(404).json({ error: 'Child not found' });
 
+        // Force password setup on the child so the magic link acts as a reset link
+        await prisma.user.update({
+            where: { id: child.id },
+            data: { needsPasswordSetup: true },
+        });
+
         const magicToken = jwt.sign(
             { studentId: child.id, purpose: 'magic-login' },
             process.env.JWT_SECRET,
@@ -309,7 +315,7 @@ router.post('/magic-link/:childId', authMiddleware, async (req, res) => {
 
         res.json({
             magicLink: `/magic-login/${magicToken}`,
-            needsPasswordSetup: child.needsPasswordSetup,
+            needsPasswordSetup: true,
         });
     } catch (error) {
         console.error('[Auth] Magic link generation error:', error);
