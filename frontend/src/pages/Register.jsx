@@ -10,7 +10,7 @@ import { BookOpen, Mail, Lock, User, Briefcase, Users, AlertCircle, Copy, Check,
 const SUBJECTS = ['Mathématiques', 'Physique', 'Chimie', 'SVT', 'Français', 'Anglais', 'Espagnol', 'Histoire-Géo', 'Philosophie', 'Informatique'];
 
 function getRoleHome(role) {
-    if (role === 'PROFESSOR') return '/dashboard';
+    if (role === 'PROFESSOR' || role === 'PROF') return '/dashboard';
     if (role === 'PARENT') return '/parent';
     return '/student';
 }

@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { BookOpen, Mail, Lock, User, AlertCircle } from 'lucide-react';
 
 function getRoleHome(role) {
-    if (role === 'PROFESSOR') return '/dashboard';
+    if (role === 'PROFESSOR' || role === 'PROF') return '/dashboard';
     if (role === 'PARENT') return '/parent';
     return '/student';
 }

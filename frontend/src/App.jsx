@@ -13,7 +13,7 @@ import InvitePage from './pages/InvitePage';
 import MagicLogin from './pages/MagicLogin';
 
 function getRoleHome(role) {
-    if (role === 'PROFESSOR') return '/dashboard';
+    if (role === 'PROFESSOR' || role === 'PROF') return '/dashboard';
     if (role === 'PARENT') return '/parent';
     return '/student';
 }
@@ -21,8 +21,9 @@ function getRoleHome(role) {
 function ProtectedRoute({ children, allowedRoles }) {
     const { user, token } = useAuthStore();
     if (!token || !user) return <Navigate to="/login" replace />;
-    if (allowedRoles && !allowedRoles.includes(user.role)) {
-        return <Navigate to={getRoleHome(user.role)} replace />;
+    const effectiveRole = user.role === 'PROF' ? 'PROFESSOR' : user.role;
+    if (allowedRoles && !allowedRoles.includes(effectiveRole)) {
+        return <Navigate to={getRoleHome(effectiveRole)} replace />;
     }
     return children;
 }
