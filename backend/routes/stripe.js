@@ -214,4 +214,114 @@ router.post('/cancel-subscription', authMiddleware, async (req, res) => {
     }
 });
 
+// ============ STRIPE CONNECT (Professors receiving payments) ============
+
+// POST /api/stripe/connect/create-account — Create Express account
+router.post('/connect/create-account', authMiddleware, async (req, res) => {
+    try {
+        const stripe = getStripe();
+        if (!stripe) return res.status(400).json({ error: 'Stripe not configured' });
+
+        if (req.user.role !== 'PROFESSOR') {
+            return res.status(403).json({ error: 'Only professors can create Connect accounts' });
+        }
+
+        // Check if already has an account
+        const user = await prisma.user.findUnique({
+            where: { id: req.user.id },
+            select: { stripeAccountId: true, email: true, name: true },
+        });
+
+        if (user.stripeAccountId) {
+            return res.json({ accountId: user.stripeAccountId, alreadyExists: true });
+        }
+
+        // Create Express account
+        const account = await stripe.accounts.create({
+            type: 'express',
+            country: 'FR',
+            email: user.email,
+            capabilities: {
+                card_payments: { requested: true },
+                transfers: { requested: true },
+            },
+            business_type: 'individual',
+            metadata: { userId: req.user.id },
+        });
+
+        // Save account ID
+        await prisma.user.update({
+            where: { id: req.user.id },
+            data: { stripeAccountId: account.id },
+        });
+
+        res.json({ accountId: account.id });
+    } catch (error) {
+        console.error('[Stripe] Connect create account error:', error);
+        res.status(500).json({ error: error.message || 'Failed to create Connect account' });
+    }
+});
+
+// POST /api/stripe/connect/account-session — Create AccountSession for embedded components
+router.post('/connect/account-session', authMiddleware, async (req, res) => {
+    try {
+        const stripe = getStripe();
+        if (!stripe) return res.status(400).json({ error: 'Stripe not configured' });
+
+        const user = await prisma.user.findUnique({
+            where: { id: req.user.id },
+            select: { stripeAccountId: true },
+        });
+
+        if (!user?.stripeAccountId) {
+            return res.status(400).json({ error: 'No Connect account found. Create one first.' });
+        }
+
+        const accountSession = await stripe.accountSessions.create({
+            account: user.stripeAccountId,
+            components: {
+                account_onboarding: { enabled: true },
+                payments: { enabled: true, features: { refund_management: true } },
+                payouts: { enabled: true },
+            },
+        });
+
+        res.json({ clientSecret: accountSession.client_secret });
+    } catch (error) {
+        console.error('[Stripe] Connect account session error:', error);
+        res.status(500).json({ error: error.message || 'Failed to create account session' });
+    }
+});
+
+// GET /api/stripe/connect/status — Get Connect account status
+router.get('/connect/status', authMiddleware, async (req, res) => {
+    try {
+        const stripe = getStripe();
+        if (!stripe) return res.status(400).json({ error: 'Stripe not configured' });
+
+        const user = await prisma.user.findUnique({
+            where: { id: req.user.id },
+            select: { stripeAccountId: true },
+        });
+
+        if (!user?.stripeAccountId) {
+            return res.json({ hasAccount: false });
+        }
+
+        const account = await stripe.accounts.retrieve(user.stripeAccountId);
+
+        res.json({
+            hasAccount: true,
+            accountId: user.stripeAccountId,
+            chargesEnabled: account.charges_enabled,
+            payoutsEnabled: account.payouts_enabled,
+            detailsSubmitted: account.details_submitted,
+            requirements: account.requirements?.currently_due || [],
+        });
+    } catch (error) {
+        console.error('[Stripe] Connect status error:', error);
+        res.status(500).json({ error: 'Failed to get Connect status' });
+    }
+});
+
 module.exports = router;
