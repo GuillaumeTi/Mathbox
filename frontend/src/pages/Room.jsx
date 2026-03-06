@@ -100,7 +100,7 @@ export default function Room() {
                     </div>
                     <h2 className="text-xl font-bold">Accès refusé</h2>
                     <p className="text-muted-foreground">{error}</p>
-                    <Button variant="outline" className="mt-6 w-full" onClick={() => navigate('/prof-dashboard')}>
+                    <Button variant="outline" className="mt-6 w-full" onClick={() => navigate('/')}>
                         <ArrowLeft className="w-4 h-4 mr-2" /> Quitter
                     </Button>
                 </div>
