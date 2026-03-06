@@ -87,8 +87,15 @@ export default function PayInvoiceModal({ isOpen, onClose, invoice, onPaid }) {
         }
     }, [isOpen, invoice]);
 
-    const handleSuccess = () => {
+    const handleSuccess = async () => {
         setSuccess(true);
+        try {
+            // Actively verify the payment on the backend so the DB state is up-to-date
+            // This bypasses the need to wait for Webhooks, fixing the Professor reload issue.
+            await api.post(`/invoices/${invoice.id}/verify`);
+        } catch (err) {
+            console.error('Verify failed', err);
+        }
         if (onPaid) onPaid(invoice.id);
     };
 

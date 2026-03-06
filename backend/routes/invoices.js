@@ -160,10 +160,59 @@ router.post('/:id/pay', authMiddleware, async (req, res) => {
             },
         });
 
+        // Save PaymentIntent ID so we can verify it proactively
+        await prisma.courseInvoice.update({
+            where: { id: invoice.id },
+            data: { stripePaymentIntentId: paymentIntent.id }
+        });
+
         res.json({ clientSecret: paymentIntent.client_secret });
     } catch (error) {
         console.error('[Invoices] Pay error:', error);
         res.status(500).json({ error: error.message || 'Failed to create payment' });
+    }
+});
+
+// POST /api/invoices/:id/verify — Proactively verify payment status from frontend
+router.post('/:id/verify', authMiddleware, async (req, res) => {
+    try {
+        const stripe = getStripe();
+        if (!stripe) return res.status(400).json({ error: 'Stripe not configured' });
+
+        const invoice = await prisma.courseInvoice.findUnique({
+            where: { id: req.params.id }
+        });
+
+        if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+        if (invoice.status === 'PAID') return res.json({ status: 'PAID' });
+        if (!invoice.stripePaymentIntentId) return res.status(400).json({ error: 'No payment intent found' });
+
+        // Check status directly with Stripe
+        const paymentIntent = await stripe.paymentIntents.retrieve(invoice.stripePaymentIntentId);
+
+        if (paymentIntent.status === 'succeeded') {
+            await prisma.courseInvoice.update({
+                where: { id: invoice.id },
+                data: {
+                    status: 'PAID',
+                    paidAt: new Date(),
+                },
+            });
+
+            // Emit socket event for real-time update
+            const io = req.app.get('io');
+            if (io && invoice.professorId && invoice.parentId) {
+                io.to(`user:${invoice.professorId}`).emit('invoice:paid', { invoiceId: invoice.id });
+                io.to(`user:${invoice.parentId}`).emit('invoice:paid', { invoiceId: invoice.id });
+            }
+
+            return res.json({ status: 'PAID' });
+        }
+
+        res.json({ status: invoice.status });
+    } catch (error) {
+        console.error('[Invoices] Verify error:', error);
+        res.status(500).json({ error: 'Failed to verify payment' });
     }
 });
 
