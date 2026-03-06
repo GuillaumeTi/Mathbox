@@ -22,6 +22,7 @@ export default function Shop() {
     const [showBuyCredits, setShowBuyCredits] = useState(false);
     const [stripeStatus, setStripeStatus] = useState(null);
     const [canceling, setCanceling] = useState(false);
+    const [reactivating, setReactivating] = useState(false);
 
     useEffect(() => {
         fetchMe();
@@ -60,6 +61,18 @@ export default function Shop() {
             alert(err.message || "Erreur lors de l'annulation");
         }
         setCanceling(false);
+    };
+
+    const handleReactivateSubscription = async (e) => {
+        e.stopPropagation();
+        setReactivating(true);
+        try {
+            await api.post('/stripe/reactivate-subscription');
+            await loadStripeStatus();
+        } catch (err) {
+            alert(err.message || "Erreur lors de la réactivation");
+        }
+        setReactivating(false);
     };
 
     return (
@@ -183,6 +196,14 @@ export default function Shop() {
                                             {stripeStatus?.cancelAtPeriodEnd ? (
                                                 <p className="text-xs text-muted-foreground mt-2">
                                                     Fin de l'abonnement le {stripeStatus.currentPeriodEnd ? new Date(stripeStatus.currentPeriodEnd * 1000).toLocaleDateString() : '...'}
+                                                    {' - '}
+                                                    <button
+                                                        onClick={handleReactivateSubscription}
+                                                        disabled={reactivating}
+                                                        className="inline-block transition-colors underline-offset-4 underline hover:text-emerald-400"
+                                                    >
+                                                        {reactivating ? 'Activation...' : "Re-Activer"}
+                                                    </button>
                                                 </p>
                                             ) : (
                                                 <button

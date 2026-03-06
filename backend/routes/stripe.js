@@ -230,6 +230,33 @@ router.post('/cancel-subscription', authMiddleware, async (req, res) => {
     }
 });
 
+// POST /api/stripe/reactivate-subscription — Reactivate canceled auto-renew
+router.post('/reactivate-subscription', authMiddleware, async (req, res) => {
+    try {
+        const stripe = getStripe();
+        if (!stripe) return res.status(400).json({ error: 'Stripe not configured' });
+
+        const user = await prisma.user.findUnique({
+            where: { id: req.user.id },
+            select: { stripeSubscriptionId: true },
+        });
+
+        if (!user?.stripeSubscriptionId) {
+            return res.status(400).json({ error: 'No active subscription' });
+        }
+
+        // Set cancel_at_period_end back to false
+        await stripe.subscriptions.update(user.stripeSubscriptionId, {
+            cancel_at_period_end: false
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[Stripe] Reactivate subscription error:', error);
+        res.status(500).json({ error: 'Failed to reactivate subscription' });
+    }
+});
+
 // POST /api/stripe/confirm-subscription — Frontend calls after successful payment
 // Verifies with Stripe that the subscription is active, then updates DB
 router.post('/confirm-subscription', authMiddleware, async (req, res) => {
