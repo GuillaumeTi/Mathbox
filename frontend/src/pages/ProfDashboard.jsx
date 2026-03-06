@@ -19,7 +19,6 @@ import { api } from '@/lib/api';
 import HomeworkModal from '@/components/HomeworkModal';
 import SubscribeModal from '@/components/SubscribeModal';
 import BuyCreditsModal from '@/components/BuyCreditsModal';
-import ConnectOnboarding from '@/components/ConnectOnboarding';
 
 const DAYS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 
@@ -131,9 +130,6 @@ export default function ProfDashboard() {
     // Stripe modals
     const [showSubscribe, setShowSubscribe] = useState(false);
     const [showBuyCredits, setShowBuyCredits] = useState(false);
-
-    // Dashboard tabs
-    const [dashboardTab, setDashboardTab] = useState('courses'); // 'courses' | 'facturation'
 
     // Handlers
     const toggleExpand = async (courseId) => {
@@ -303,13 +299,11 @@ export default function ProfDashboard() {
                         <Link to="/cloud">
                             <Button variant="ghost" size="sm"><Cloud className="w-4 h-4 mr-1.5" />Cloud</Button>
                         </Link>
-                        <Button
-                            variant={dashboardTab === 'facturation' ? 'default' : 'ghost'}
-                            size="sm"
-                            onClick={() => setDashboardTab(dashboardTab === 'facturation' ? 'courses' : 'facturation')}
-                        >
-                            <Wallet className="w-4 h-4 mr-1.5" />Facturation
-                        </Button>
+                        <Link to="/billing">
+                            <Button variant="ghost" size="sm">
+                                <Wallet className="w-4 h-4 mr-1.5" />Facturation
+                            </Button>
+                        </Link>
                         <Link to="/shop">
                             <Button variant="ghost" size="sm"><ShoppingBag className="w-4 h-4 mr-1.5" />Boutique</Button>
                         </Link>
@@ -644,17 +638,6 @@ export default function ProfDashboard() {
                         </div>
                     )}
                 </div>
-
-                {/* Facturation Tab */}
-                {dashboardTab === 'facturation' && (
-                    <div className="mt-2">
-                        <h2 className="text-xl font-semibold flex items-center gap-2 mb-4">
-                            <Wallet className="w-5 h-5 text-primary" />
-                            Facturation & Paiements
-                        </h2>
-                        <ConnectOnboarding />
-                    </div>
-                )}
             </main>
 
             <HomeworkModal

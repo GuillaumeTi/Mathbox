@@ -9,229 +9,28 @@ import {
     BookOpen, ArrowLeft, ShoppingBag, Brain, Check,
     Sparkles, CreditCard, History, Zap
 } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { loadStripe } from '@stripe/stripe-js';
-import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
-import { PayPalScriptProvider, PayPalButtons } from '@paypal/react-paypal-js';
-
-// Payment Modal Component
-const PaymentModal = ({ open, onClose, item, type, config, onSuccess }) => {
-    const [clientSecret, setClientSecret] = useState('');
-    const [stripePromise, setStripePromise] = useState(null);
-
-    useEffect(() => {
-        if (config?.stripePublicKey) {
-            setStripePromise(loadStripe(config.stripePublicKey));
-        }
-    }, [config]);
-
-    useEffect(() => {
-        if (open && item && config?.stripePublicKey && !config.isMock) {
-            // Create PaymentIntent
-            api.post('/shop/create-payment-intent', { itemId: item.id, type })
-                .then(data => setClientSecret(data.clientSecret))
-                .catch(err => console.error(err));
-        }
-    }, [open, item, config]);
-
-    if (!item) return null;
-
-
-    return (
-        <Dialog open={open} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-[500px]">
-                <DialogHeader>
-                    <DialogTitle>Paiement sécurisé</DialogTitle>
-                    <DialogDescription>
-                        Choisissez votre méthode de paiement pour {item.name}
-                    </DialogDescription>
-                </DialogHeader>
-
-                <Tabs defaultValue="card" className="w-full">
-                    <TabsList className="grid w-full grid-cols-2">
-                        <TabsTrigger value="card">Carte Bancaire</TabsTrigger>
-                        <TabsTrigger value="paypal">PayPal</TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="card" className="mt-4">
-                        {config?.isMock ? (
-                            <div className="space-y-4 py-4">
-                                <div className="bg-yellow-500/10 text-yellow-500 p-4 rounded-lg text-sm flex items-center gap-2">
-                                    <Sparkles className="w-4 h-4" /> Mode Simulation (Mock)
-                                </div>
-                                <p className="text-sm text-muted-foreground">Simulation d'un paiement par Carte Bancaire.</p>
-                                <Button className="w-full" onClick={() => onSuccess(item.id)}>
-                                    Simuler Paiement Carte
-                                </Button>
-                            </div>
-                        ) : (
-                            clientSecret && stripePromise ? (
-                                <Elements stripe={stripePromise} options={{ clientSecret }}>
-                                    <StripeCheckoutForm onSuccess={() => onSuccess(item.id)} />
-                                </Elements>
-                            ) : (
-                                <div className="text-center py-4">Chargement Stripe...</div>
-                            )
-                        )}
-                    </TabsContent>
-
-                    <TabsContent value="paypal" className="mt-4">
-                        {config?.isMock ? (
-                            <div className="space-y-4 py-4">
-                                <div className="bg-blue-500/10 text-blue-500 p-4 rounded-lg text-sm flex items-center gap-2">
-                                    <Sparkles className="w-4 h-4" /> Mode Simulation (Mock)
-                                </div>
-                                <p className="text-sm text-muted-foreground">Simulation d'un paiement PayPal.</p>
-                                <Button className="w-full bg-[#0070BA] hover:bg-[#003087]" onClick={() => onSuccess(item.id)}>
-                                    Simuler Paiement PayPal
-                                </Button>
-                            </div>
-                        ) : (
-                            <PayPalScriptProvider options={{ "client-id": config?.paypalClientId }}>
-                                <PayPalButtons
-                                    style={{ layout: "vertical" }}
-                                    createOrder={(data, actions) => {
-                                        return actions.order.create({
-                                            purchase_units: [{
-                                                amount: { value: item.price.toString() },
-                                                description: item.name
-                                            }]
-                                        });
-                                    }}
-                                    onApprove={(data, actions) => {
-                                        return actions.order.capture().then((details) => {
-                                            onSuccess(item.id);
-                                        });
-                                    }}
-                                />
-                            </PayPalScriptProvider>
-                        )}
-                    </TabsContent>
-                </Tabs>
-            </DialogContent>
-        </Dialog>
-    );
-};
-
-const StripeCheckoutForm = ({ onSuccess }) => {
-    const stripe = useStripe();
-    const elements = useElements();
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState(null);
-
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        if (!stripe || !elements) return;
-
-        setLoading(true);
-        const { error: submitError } = await elements.submit();
-        if (submitError) {
-            setError(submitError.message);
-            setLoading(false);
-            return;
-        }
-
-        const { error: confirmError } = await stripe.confirmPayment({
-            elements,
-            confirmParams: {
-                return_url: window.location.href, // In real app, handle redirect. For intent, it might not redirect if success.
-            },
-            redirect: "if_required",
-        });
-
-        if (confirmError) {
-            setError(confirmError.message);
-        } else {
-            // Payment succeeded
-            onSuccess();
-        }
-        setLoading(false);
-    };
-
-    return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <PaymentElement />
-            {error && <div className="text-red-500 text-sm">{error}</div>}
-            <Button type="submit" disabled={!stripe || loading} className="w-full">
-                {loading ? 'Traitement...' : 'Payer'}
-            </Button>
-        </form>
-    );
-};
+import SubscribeModal from '@/components/SubscribeModal';
+import BuyCreditsModal from '@/components/BuyCreditsModal';
 
 export default function Shop() {
     const { user, fetchMe } = useAuthStore();
-    const [plans, setPlans] = useState([]);
-    const [packs, setPacks] = useState([]);
-    const [transactions, setTransactions] = useState([]);
     const [tab, setTab] = useState('credits');
+    const [transactions, setTransactions] = useState([]);
 
-    // Payment State
-    const [config, setConfig] = useState(null);
-    const [paymentModalOpen, setPaymentModalOpen] = useState(false);
-    const [selectedItem, setSelectedItem] = useState(null);
-    const [itemType, setItemType] = useState('pack'); // 'pack' | 'plan'
+    // Stripe modals
+    const [showSubscribe, setShowSubscribe] = useState(false);
+    const [showBuyCredits, setShowBuyCredits] = useState(false);
 
     useEffect(() => {
-        loadShopData();
-        loadConfig();
+        fetchMe();
+        loadTransactions();
     }, []);
 
-    const loadConfig = async () => {
+    const loadTransactions = async () => {
         try {
-            const data = await api.get('/shop/config');
-            setConfig(data);
-        } catch (err) { console.error(err); }
-    };
-
-    const loadShopData = async () => {
-        try {
-            const [plansData, packsData, txData] = await Promise.all([
-                api.get('/shop/plans'),
-                api.get('/shop/credits'),
-                api.get('/shop/transactions'),
-            ]);
-            setPlans(plansData.plans || []);
-            setPacks(packsData.packs || []);
+            const txData = await api.get('/shop/transactions');
             setTransactions(txData.transactions || []);
         } catch (err) { }
-    };
-
-    const handleBuy = (item, type) => {
-        setSelectedItem(item);
-        setItemType(type);
-        setPaymentModalOpen(true);
-    };
-
-    const handleSuccess = async (itemId) => {
-        // If it was a mock payment or real payment confirmed client-side:
-        // We still need to tell backend to give credits (if we reused the /credits/purchase endpoint)
-        // Note: For real Stripe, we usually rely on webhook.
-        // But for this task's "Conditional Wrap", we might use the /purchase endpoint for both 
-        // if the /purchase endpoint was adapted to accept a "paymentIntentId" etc.
-        // Or if in Mock mode, it just works.
-
-        try {
-            // Re-use the purchase endpoint.
-            // In Mock mode, it gives credits.
-            // In Real mode, the endpoint currently blocks direct calls ("Please use secure flow").
-            // So we need a way to finalize.
-
-            // If checking Mock mode:
-            if (config?.isMock) {
-                const data = await api.post('/shop/credits/purchase', { packId: itemId || selectedItem.id });
-                alert(data.message);
-            } else {
-                alert("Paiement réussi ! Votre compte sera crédité sous peu.");
-            }
-
-            setPaymentModalOpen(false);
-            await fetchMe();
-            loadShopData();
-        } catch (err) {
-            alert(err.message);
-        }
     };
 
     return (
@@ -286,70 +85,67 @@ export default function Shop() {
 
                 {/* Credits Tab */}
                 {tab === 'credits' && (
-                    <div className="grid md:grid-cols-4 gap-4">
-                        {packs.map(pack => (
-                            <Card key={pack.id} className={`relative ${pack.popular ? 'border-primary glow-primary' : ''} hover:-translate-y-1 transition-all duration-300`}>
-                                {pack.popular && (
-                                    <div className="absolute -top-2.5 left-1/2 -translate-x-1/2">
-                                        <Badge className="bg-primary text-white border-0 text-[10px]">
-                                            <Sparkles className="w-3 h-3 mr-0.5" /> Populaire
-                                        </Badge>
+                    <div className="space-y-6">
+                        <div className="grid md:grid-cols-2 gap-6">
+                            <Card className="hover:-translate-y-1 transition-all duration-300 cursor-pointer border-primary/30 glow-primary" onClick={() => setShowBuyCredits(true)}>
+                                <CardContent className="p-6 text-center">
+                                    <div className="w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                                        <Brain className="w-7 h-7 text-primary" />
                                     </div>
-                                )}
-                                <CardContent className="p-5 text-center">
-                                    <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-3">
-                                        <Brain className="w-6 h-6 text-primary" />
-                                    </div>
-                                    <h3 className="font-semibold mb-1">{pack.name}</h3>
-                                    <p className="text-3xl font-black mb-1">{pack.price}€</p>
-                                    <p className="text-xs text-muted-foreground mb-4">{(pack.price / pack.credits).toFixed(2)}€ / crédit</p>
-                                    <Button
-                                        variant={pack.popular ? 'glow' : 'outline'}
-                                        className="w-full"
-                                        onClick={() => handleBuy(pack, 'pack')}
-                                    >
-                                        Acheter
+                                    <h3 className="font-semibold text-lg mb-2">Acheter des Crédits IA</h3>
+                                    <p className="text-sm text-muted-foreground mb-4">Packs de 5 ou 10 crédits pour utiliser l'assistant IA</p>
+                                    <Button variant="glow" className="w-full">
+                                        <Sparkles className="w-4 h-4 mr-2" /> Acheter des crédits
                                     </Button>
                                 </CardContent>
                             </Card>
-                        ))}
+                        </div>
                     </div>
                 )}
 
                 {/* Plans Tab */}
                 {tab === 'plans' && (
-                    <div className="grid md:grid-cols-3 gap-6">
-                        {plans.map(plan => (
-                            <Card key={plan.id} className={`${plan.popular ? 'border-primary glow-primary' : ''} transition-all duration-300`}>
-                                {plan.popular && (
-                                    <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                                        <Badge className="bg-primary text-white border-0">Populaire</Badge>
+                    <div className="space-y-6">
+                        <div className="grid md:grid-cols-2 gap-6">
+                            <Card className="border-border">
+                                <CardContent className="p-6 text-center">
+                                    <h3 className="font-semibold text-lg mb-1">Plan Gratuit</h3>
+                                    <p className="text-3xl font-black mb-1">0€</p>
+                                    <p className="text-xs text-muted-foreground mb-4">Essai de 15 jours</p>
+                                    <div className="text-left space-y-2 mb-6">
+                                        {['2h de cours/semaine', 'Cloud limité', 'Sans IA'].map((f, i) => (
+                                            <div key={i} className="flex items-center gap-2 text-sm">
+                                                <Check className="w-4 h-4 text-muted-foreground shrink-0" /> {f}
+                                            </div>
+                                        ))}
                                     </div>
-                                )}
-                                <CardHeader className="text-center">
-                                    <CardTitle>{plan.name}</CardTitle>
-                                    <div className="mt-2">
-                                        <span className="text-4xl font-black">{plan.price}€</span>
-                                        <span className="text-muted-foreground">/mois</span>
+                                    <Button variant="outline" className="w-full" disabled>Plan actuel</Button>
+                                </CardContent>
+                            </Card>
+
+                            <Card className="border-primary glow-primary hover:-translate-y-1 transition-all duration-300 cursor-pointer" onClick={() => setShowSubscribe(true)}>
+                                <div className="absolute -top-2.5 left-1/2 -translate-x-1/2">
+                                    <Badge className="bg-primary text-white border-0 text-[10px]">
+                                        <Sparkles className="w-3 h-3 mr-0.5" /> Recommandé
+                                    </Badge>
+                                </div>
+                                <CardContent className="p-6 text-center">
+                                    <h3 className="font-semibold text-lg mb-1">MathBox Pro</h3>
+                                    <p className="text-3xl font-black mb-1">9.99€<span className="text-sm font-normal text-muted-foreground">/mois</span></p>
+                                    <p className="text-xs text-muted-foreground mb-4">Accès complet</p>
+                                    <div className="text-left space-y-2 mb-6">
+                                        {['Cours illimités', 'Cloud 10 Go', 'IA disponible', 'Marketplace activé', 'Support prioritaire'].map((f, i) => (
+                                            <div key={i} className="flex items-center gap-2 text-sm">
+                                                <Check className="w-4 h-4 text-primary shrink-0" /> {f}
+                                            </div>
+                                        ))}
                                     </div>
-                                </CardHeader>
-                                <CardContent className="space-y-3">
-                                    {plan.features?.map((f, i) => (
-                                        <div key={i} className="flex items-center gap-2 text-sm">
-                                            <Check className="w-4 h-4 text-primary shrink-0" /> {f}
-                                        </div>
-                                    ))}
-                                    <Button
-                                        variant={plan.popular ? 'glow' : 'outline'}
-                                        className="w-full mt-4"
-                                        onClick={() => handleBuy(plan, 'plan')}
-                                        disabled={plan.price === 0}
-                                    >
-                                        {plan.price === 0 ? 'Plan actuel' : 'Passer au plan'}
+                                    <Button variant="glow" className="w-full">
+                                        <Zap className="w-4 h-4 mr-2" /> S'abonner
                                     </Button>
                                 </CardContent>
                             </Card>
-                        ))}
+                        </div>
                     </div>
                 )}
 
@@ -396,14 +192,8 @@ export default function Shop() {
                     </Card>
                 )}
 
-                <PaymentModal
-                    open={paymentModalOpen}
-                    onClose={() => setPaymentModalOpen(false)}
-                    item={selectedItem}
-                    type={itemType}
-                    config={config}
-                    onSuccess={handleSuccess}
-                />
+                <SubscribeModal isOpen={showSubscribe} onClose={() => setShowSubscribe(false)} />
+                <BuyCreditsModal isOpen={showBuyCredits} onClose={() => setShowBuyCredits(false)} />
             </main>
         </div>
     );

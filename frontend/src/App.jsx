@@ -9,6 +9,7 @@ import ParentDashboard from './pages/ParentDashboard';
 import Room from './pages/Room';
 import Cloud from './pages/Cloud';
 import Shop from './pages/Shop';
+import Billing from './pages/Billing';
 import InvitePage from './pages/InvitePage';
 import MagicLogin from './pages/MagicLogin';
 
@@ -71,6 +72,9 @@ export default function App() {
                 } />
                 <Route path="/cloud" element={
                     <ProtectedRoute><Cloud /></ProtectedRoute>
+                } />
+                <Route path="/billing" element={
+                    <ProtectedRoute allowedRoles={['PROFESSOR']}><Billing /></ProtectedRoute>
                 } />
 
                 {/* Catch all */}
