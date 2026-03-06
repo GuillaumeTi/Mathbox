@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { PrismaClient } = require('@prisma/client');
 const authMiddleware = require('../middleware/auth');
 const { getStripe } = require('../services/stripe');
+const { requireActiveTrial } = require('../middleware/trialGuard');
 
 const prisma = new PrismaClient();
 
@@ -10,7 +11,7 @@ const APPLICATION_FEE_PERCENT = 5; // MathBox takes 5%
 // ============ COURSE INVOICES (Marketplace) ============
 
 // POST /api/invoices/create — Professor creates invoice for a course/parent
-router.post('/create', authMiddleware, async (req, res) => {
+router.post('/create', authMiddleware, requireActiveTrial, async (req, res) => {
     try {
         if (req.user.role !== 'PROFESSOR') {
             return res.status(403).json({ error: 'Only professors can create invoices' });

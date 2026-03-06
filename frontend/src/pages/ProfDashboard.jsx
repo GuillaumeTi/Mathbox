@@ -131,6 +131,10 @@ export default function ProfDashboard() {
     const [showSubscribe, setShowSubscribe] = useState(false);
     const [showBuyCredits, setShowBuyCredits] = useState(false);
 
+    // Trial state helpers
+    const isLocked = trial?.trialExpired;
+    const isUnlimitedVideo = trial?.subscriptionStatus === 'ACTIVE';
+
     // Handlers
     const toggleExpand = async (courseId) => {
         if (expandedCourseId === courseId) {
@@ -296,12 +300,16 @@ export default function ProfDashboard() {
                         <span className="font-bold gradient-text text-lg">MathBox</span>
                     </div>
                     <div className="flex items-center gap-2">
-                        <Link to="/cloud">
-                            <Button variant="ghost" size="sm"><Cloud className="w-4 h-4 mr-1.5" />Cloud</Button>
+                        <Link to={isLocked ? "#" : "/cloud"} onClick={e => isLocked && e.preventDefault()}>
+                            <Button variant="ghost" size="sm" className={isLocked ? "opacity-50 cursor-not-allowed" : ""}>
+                                <Cloud className="w-4 h-4 mr-1.5" />
+                                Cloud {isLocked && <AlertTriangle className="w-3 h-3 ml-1 text-red-500" title="Abonnement requis" />}
+                            </Button>
                         </Link>
-                        <Link to="/billing">
-                            <Button variant="ghost" size="sm">
-                                <Wallet className="w-4 h-4 mr-1.5" />Facturation
+                        <Link to={isLocked ? "#" : "/billing"} onClick={e => isLocked && e.preventDefault()}>
+                            <Button variant="ghost" size="sm" className={isLocked ? "opacity-50 cursor-not-allowed" : ""}>
+                                <Wallet className="w-4 h-4 mr-1.5" />
+                                Facturation {isLocked && <AlertTriangle className="w-3 h-3 ml-1 text-red-500" title="Abonnement requis" />}
                             </Button>
                         </Link>
                         <Link to="/shop">
@@ -382,8 +390,14 @@ export default function ProfDashboard() {
                                 <Clock className="w-5 h-5 text-emerald-400" />
                             </div>
                             <div>
-                                <p className="text-2xl font-bold">{Math.round(totalHours)}</p>
-                                <p className="text-xs text-muted-foreground">Heures / mois</p>
+                                {isUnlimitedVideo ? (
+                                    <p className="text-2xl font-bold">Illimité</p>
+                                ) : (
+                                    <p className="text-xl font-bold">
+                                        {user?.weeklyVideoMinutes || 0} <span className="text-sm text-muted-foreground font-normal">/ 120 min</span>
+                                    </p>
+                                )}
+                                <p className="text-xs text-muted-foreground">Temps visio (semaine)</p>
                             </div>
                         </Card>
                         <Card className="px-5 py-3 flex items-center gap-3 cursor-pointer hover:border-amber-500/50 transition-colors" onClick={() => setShowBuyCredits(true)}>

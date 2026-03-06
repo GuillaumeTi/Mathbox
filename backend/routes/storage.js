@@ -4,12 +4,13 @@ const authMiddleware = require('../middleware/auth');
 const archiver = require('archiver');
 const path = require('path');
 const fs = require('fs');
+const { requireActiveTrial } = require('../middleware/trialGuard');
 
 const prisma = new PrismaClient();
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
 
 // PUT /api/storage/rename
-router.put('/rename', authMiddleware, async (req, res) => {
+router.put('/rename', authMiddleware, requireActiveTrial, async (req, res) => {
     try {
         const { id, type, newName } = req.body; // type: 'FILE' | 'FOLDER'
 
@@ -50,7 +51,7 @@ router.put('/rename', authMiddleware, async (req, res) => {
 });
 
 // GET /api/storage/folder/:folderId/download
-router.get('/folder/:folderId/download', authMiddleware, async (req, res) => {
+router.get('/folder/:folderId/download', authMiddleware, requireActiveTrial, async (req, res) => {
     try {
         const { folderId } = req.params;
         const folder = await prisma.folder.findUnique({ where: { id: folderId } });

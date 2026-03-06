@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { PrismaClient } = require('@prisma/client');
 const { WebhookReceiver } = require('livekit-server-sdk');
 const { transcribeAudio, analyzeCourse } = require('../services/openaiService');
+const { getTrialStatus } = require('../middleware/trialGuard');
 const fs = require('fs');
 const path = require('path');
 
@@ -158,24 +159,35 @@ router.post('/livekit', express_raw(), async (req, res) => {
                                     },
                                 });
                             }
+                            // Check if Professor is eligible for AI features
+                            const profUser = await prisma.user.findUnique({
+                                where: { id: course.professorId },
+                                select: { role: true, trialEndDate: true, subscriptionStatus: true }
+                            });
 
-                            // Trigger mocked AI pipeline
-                            console.log(`[Webhook] Triggering AI pipeline for session: ${session.id}`);
-                            try {
-                                const transcript = await transcribeAudio(Buffer.from('mock-audio'));
-                                const analysis = await analyzeCourse(transcript.text, course.subject);
+                            const trialStatus = await getTrialStatus(profUser);
 
-                                await prisma.session.update({
-                                    where: { id: session.id },
-                                    data: {
-                                        aiReportUrl: `/reports/${session.id}_report.json`,
-                                        notes: JSON.stringify(analysis.analysis),
-                                    },
-                                });
+                            if (!trialStatus.trialExpired) {
+                                // Trigger mocked AI pipeline
+                                console.log(`[Webhook] Triggering AI pipeline for session: ${session.id}`);
+                                try {
+                                    const transcript = await transcribeAudio(Buffer.from('mock-audio'));
+                                    const analysis = await analyzeCourse(transcript.text, course.subject);
 
-                                console.log(`[Webhook] AI pipeline completed for session: ${session.id}`);
-                            } catch (aiErr) {
-                                console.error('[Webhook] AI pipeline error:', aiErr);
+                                    await prisma.session.update({
+                                        where: { id: session.id },
+                                        data: {
+                                            aiReportUrl: `/reports/${session.id}_report.json`,
+                                            notes: JSON.stringify(analysis.analysis),
+                                        },
+                                    });
+
+                                    console.log(`[Webhook] AI pipeline completed for session: ${session.id}`);
+                                } catch (aiErr) {
+                                    console.error('[Webhook] AI pipeline error:', aiErr);
+                                }
+                            } else {
+                                console.log(`[Webhook] Skipping AI pipeline: Trial expired for prof ${course.professorId}`);
                             }
                         }
 
