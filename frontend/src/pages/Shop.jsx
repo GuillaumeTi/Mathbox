@@ -20,17 +20,46 @@ export default function Shop() {
     // Stripe modals
     const [showSubscribe, setShowSubscribe] = useState(false);
     const [showBuyCredits, setShowBuyCredits] = useState(false);
+    const [stripeStatus, setStripeStatus] = useState(null);
+    const [canceling, setCanceling] = useState(false);
 
     useEffect(() => {
         fetchMe();
         loadTransactions();
+        loadStripeStatus();
     }, []);
+
+    useEffect(() => {
+        if (user?.subscriptionStatus === 'ACTIVE') {
+            loadStripeStatus();
+        }
+    }, [user?.subscriptionStatus]);
+
+    const loadStripeStatus = async () => {
+        try {
+            const data = await api.get('/stripe/status');
+            setStripeStatus(data);
+        } catch (err) { }
+    };
 
     const loadTransactions = async () => {
         try {
             const txData = await api.get('/shop/transactions');
             setTransactions(txData.transactions || []);
         } catch (err) { }
+    };
+
+    const handleCancelSubscription = async (e) => {
+        e.stopPropagation();
+        if (!window.confirm("Voulez-vous vraiment annuler le renouvellement de votre abonnement ?")) return;
+        setCanceling(true);
+        try {
+            await api.post('/stripe/cancel-subscription');
+            await loadStripeStatus();
+        } catch (err) {
+            alert(err.message || "Erreur lors de l'annulation");
+        }
+        setCanceling(false);
     };
 
     return (
@@ -123,12 +152,17 @@ export default function Shop() {
                                 </CardContent>
                             </Card>
 
-                            <Card className="border-primary glow-primary hover:-translate-y-1 transition-all duration-300 cursor-pointer" onClick={() => setShowSubscribe(true)}>
-                                <div className="absolute -top-2.5 left-1/2 -translate-x-1/2">
-                                    <Badge className="bg-primary text-white border-0 text-[10px]">
-                                        <Sparkles className="w-3 h-3 mr-0.5" /> Recommandé
-                                    </Badge>
-                                </div>
+                            <Card
+                                className={`border-primary ${user?.subscriptionStatus === 'ACTIVE' ? '' : 'glow-primary hover:-translate-y-1 cursor-pointer'} transition-all duration-300`}
+                                onClick={() => user?.subscriptionStatus !== 'ACTIVE' && setShowSubscribe(true)}
+                            >
+                                {user?.subscriptionStatus !== 'ACTIVE' && (
+                                    <div className="absolute -top-2.5 left-1/2 -translate-x-1/2">
+                                        <Badge className="bg-primary text-white border-0 text-[10px]">
+                                            <Sparkles className="w-3 h-3 mr-0.5" /> Recommandé
+                                        </Badge>
+                                    </div>
+                                )}
                                 <CardContent className="p-6 text-center">
                                     <h3 className="font-semibold text-lg mb-1">MathBox Pro</h3>
                                     <p className="text-3xl font-black mb-1">9.99€<span className="text-sm font-normal text-muted-foreground">/mois</span></p>
@@ -140,9 +174,31 @@ export default function Shop() {
                                             </div>
                                         ))}
                                     </div>
-                                    <Button variant="glow" className="w-full">
-                                        <Zap className="w-4 h-4 mr-2" /> S'abonner
-                                    </Button>
+
+                                    {user?.subscriptionStatus === 'ACTIVE' ? (
+                                        <div className="space-y-2">
+                                            <Button variant="outline" className="w-full bg-emerald-500/10 text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/20" disabled>
+                                                <Check className="w-4 h-4 mr-2" /> Actif
+                                            </Button>
+                                            {stripeStatus?.cancelAtPeriodEnd ? (
+                                                <p className="text-xs text-muted-foreground mt-2">
+                                                    Fin de l'abonnement le {stripeStatus.currentPeriodEnd ? new Date(stripeStatus.currentPeriodEnd * 1000).toLocaleDateString() : '...'}
+                                                </p>
+                                            ) : (
+                                                <button
+                                                    onClick={handleCancelSubscription}
+                                                    disabled={canceling}
+                                                    className="inline-block text-xs text-muted-foreground hover:text-red-400 transition-colors mt-2 underline-offset-4 hover:underline"
+                                                >
+                                                    {canceling ? 'Annulation...' : "Annuler l'abonnement"}
+                                                </button>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <Button variant="glow" className="w-full">
+                                            <Zap className="w-4 h-4 mr-2" /> S'abonner
+                                        </Button>
+                                    )}
                                 </CardContent>
                             </Card>
                         </div>

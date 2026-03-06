@@ -76,11 +76,29 @@ router.get('/status', authMiddleware, async (req, res) => {
             },
         });
 
+        let cancelAtPeriodEnd = false;
+        let currentPeriodEnd = null;
+
+        if (user.stripeSubscriptionId) {
+            const stripe = getStripe();
+            if (stripe) {
+                try {
+                    const sub = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+                    cancelAtPeriodEnd = sub.cancel_at_period_end;
+                    currentPeriodEnd = sub.current_period_end; // unix timestamp
+                } catch (e) {
+                    console.error('Error fetching subscription from Stripe:', e);
+                }
+            }
+        }
+
         res.json({
             subscriptionStatus: user.subscriptionStatus,
             stripeSubscriptionId: user.stripeSubscriptionId,
             credits: user.credits,
             hasStripeCustomer: !!user.stripeCustomerId,
+            cancelAtPeriodEnd,
+            currentPeriodEnd
         });
     } catch (error) {
         console.error('[Stripe] Status error:', error);
@@ -197,15 +215,13 @@ router.post('/cancel-subscription', authMiddleware, async (req, res) => {
             return res.status(400).json({ error: 'No active subscription' });
         }
 
-        await stripe.subscriptions.cancel(user.stripeSubscriptionId);
-
-        await prisma.user.update({
-            where: { id: req.user.id },
-            data: {
-                subscriptionStatus: 'EXPIRED',
-                stripeSubscriptionId: null,
-            },
+        // Instead of immediate cancel, we set cancel_at_period_end to true
+        await stripe.subscriptions.update(user.stripeSubscriptionId, {
+            cancel_at_period_end: true
         });
+
+        // We DO NOT set subscriptionStatus to 'EXPIRED' here.
+        // The webhook 'customer.subscription.deleted' will handle it when it actually expires at the period end.
 
         res.json({ success: true });
     } catch (error) {
