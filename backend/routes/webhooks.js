@@ -321,6 +321,13 @@ router.post('/stripe', async (req, res) => {
                             paidAt: new Date(),
                         },
                     });
+
+                    const io = req.app.get('io');
+                    if (io && metadata.professorId && metadata.parentId) {
+                        io.to(`user:${metadata.professorId}`).emit('invoice:paid', { invoiceId: metadata.courseInvoiceId });
+                        io.to(`user:${metadata.parentId}`).emit('invoice:paid', { invoiceId: metadata.courseInvoiceId });
+                    }
+
                     console.log(`[Stripe Webhook] CourseInvoice ${metadata.courseInvoiceId} paid`);
                 }
                 break;

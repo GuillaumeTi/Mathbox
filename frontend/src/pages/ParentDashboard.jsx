@@ -12,6 +12,7 @@ import {
     BookOpen, LogOut, FileText, User, Users, Brain, Plus, ChevronDown, ChevronRight,
     Copy, Check, MapPin, CreditCard, CheckSquare, Calendar, Clock, AlertCircle, ExternalLink, Link2
 } from 'lucide-react';
+import { io } from 'socket.io-client';
 
 const DAYS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 
@@ -60,7 +61,21 @@ export default function ParentDashboard() {
 
     useEffect(() => {
         fetchMe().then(() => { });
-    }, []);
+
+        // Set up socket listener for real-time invoice updates
+        if (user) {
+            const socket = io(window.location.origin);
+            socket.emit('subscribe:courses', user.id); // Same channel we use for course updates is fine, or we can just send it to user:userId
+
+            socket.on('invoice:paid', ({ invoiceId }) => {
+                setInvoices(prev => prev.map(inv =>
+                    inv.id === invoiceId ? { ...inv, status: 'PAID' } : inv
+                ));
+            });
+
+            return () => socket.disconnect();
+        }
+    }, [user?.id]);
 
     useEffect(() => {
         if (user) {
@@ -572,8 +587,8 @@ export default function ParentDashboard() {
                 onClose={() => setPayingInvoice(null)}
                 invoice={payingInvoice}
                 onPaid={() => {
-                    setPayingInvoice(null);
-                    api.get('/invoices').then(d => setInvoices(d.invoices || [])).catch(() => { });
+                    // Update locally to indicate success without closing modal instantly
+                    setInvoices(prev => prev.map(i => i.id === payingInvoice?.id ? { ...i, status: 'PAID' } : i));
                 }}
             />
         </div>

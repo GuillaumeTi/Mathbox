@@ -16,8 +16,10 @@ import {
     CheckCircle, AlertTriangle, Loader2, Wallet,
     CreditCard, ArrowDownToLine, Settings, FileText, Plus
 } from 'lucide-react';
-
+import { useAuthStore } from '@/stores/authStore';
+import { io } from 'socket.io-client';
 export default function ConnectOnboarding() {
+    const { user } = useAuthStore();
     const [connectStatus, setConnectStatus] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -131,6 +133,22 @@ export default function ConnectOnboarding() {
             fetchCourses();
         }
     }, [activeTab]);
+
+    // Real-time invoice status updates
+    useEffect(() => {
+        if (user && activeTab === 'factures') {
+            const socket = io(window.location.origin);
+            socket.emit('subscribe:courses', user.id);
+
+            socket.on('invoice:paid', ({ invoiceId }) => {
+                setInvoices(prev => prev.map(inv =>
+                    inv.id === invoiceId ? { ...inv, status: 'PAID' } : inv
+                ));
+            });
+
+            return () => socket.disconnect();
+        }
+    }, [user?.id, activeTab]);
 
     if (loading) {
         return (
