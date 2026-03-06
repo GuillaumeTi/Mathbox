@@ -36,16 +36,25 @@ function PaymentForm({ onSuccess, onCancel }) {
         setLoading(true);
         setError(null);
 
-        const { error: submitError } = await stripe.confirmPayment({
+        const result = await stripe.confirmPayment({
             elements,
             confirmParams: { return_url: window.location.href },
             redirect: 'if_required',
         });
 
-        if (submitError) {
-            setError(submitError.message);
+        if (result.error) {
+            setError(result.error.message);
             setLoading(false);
         } else {
+            // Payment confirmed — tell backend to add credits
+            const paymentIntentId = result.paymentIntent?.id;
+            if (paymentIntentId) {
+                try {
+                    await api.post('/stripe/confirm-credit-payment', { paymentIntentId });
+                } catch (err) {
+                    console.error('Confirm credit payment error:', err);
+                }
+            }
             onSuccess();
         }
     };

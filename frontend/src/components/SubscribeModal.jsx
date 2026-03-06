@@ -25,7 +25,7 @@ function getStripePromise() {
 }
 
 // Inner form component (must be inside <Elements>)
-function SubscriptionForm({ onSuccess, onCancel }) {
+function SubscriptionForm({ subscriptionId, onSuccess, onCancel }) {
     const stripe = useStripe();
     const elements = useElements();
     const [loading, setLoading] = useState(false);
@@ -41,7 +41,7 @@ function SubscriptionForm({ onSuccess, onCancel }) {
         const { error: submitError } = await stripe.confirmPayment({
             elements,
             confirmParams: {
-                return_url: window.location.href, // Fallback — should not redirect
+                return_url: window.location.href,
             },
             redirect: 'if_required',
         });
@@ -50,6 +50,12 @@ function SubscriptionForm({ onSuccess, onCancel }) {
             setError(submitError.message);
             setLoading(false);
         } else {
+            // Payment confirmed — now tell backend to update DB
+            try {
+                await api.post('/stripe/confirm-subscription', { subscriptionId });
+            } catch (err) {
+                console.error('Confirm subscription error:', err);
+            }
             onSuccess();
         }
     };
@@ -76,6 +82,7 @@ function SubscriptionForm({ onSuccess, onCancel }) {
 
 export default function SubscribeModal({ isOpen, onClose }) {
     const [clientSecret, setClientSecret] = useState(null);
+    const [subscriptionId, setSubscriptionId] = useState(null);
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
     const [error, setError] = useState(null);
@@ -88,6 +95,7 @@ export default function SubscribeModal({ isOpen, onClose }) {
             api.post('/stripe/create-subscription')
                 .then(data => {
                     setClientSecret(data.clientSecret);
+                    setSubscriptionId(data.subscriptionId);
                     setLoading(false);
                 })
                 .catch(err => {
@@ -104,6 +112,7 @@ export default function SubscribeModal({ isOpen, onClose }) {
 
     const handleClose = () => {
         setClientSecret(null);
+        setSubscriptionId(null);
         setSuccess(false);
         setError(null);
         onClose();
@@ -156,7 +165,7 @@ export default function SubscribeModal({ isOpen, onClose }) {
                             },
                         }}
                     >
-                        <SubscriptionForm onSuccess={handleSuccess} onCancel={handleClose} />
+                        <SubscriptionForm subscriptionId={subscriptionId} onSuccess={handleSuccess} onCancel={handleClose} />
                     </Elements>
                 ) : null}
             </DialogContent>

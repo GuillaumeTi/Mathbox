@@ -214,6 +214,107 @@ router.post('/cancel-subscription', authMiddleware, async (req, res) => {
     }
 });
 
+// POST /api/stripe/confirm-subscription — Frontend calls after successful payment
+// Verifies with Stripe that the subscription is active, then updates DB
+router.post('/confirm-subscription', authMiddleware, async (req, res) => {
+    try {
+        const stripe = getStripe();
+        if (!stripe) return res.status(400).json({ error: 'Stripe not configured' });
+
+        const { subscriptionId } = req.body;
+        if (!subscriptionId) return res.status(400).json({ error: 'subscriptionId required' });
+
+        // Verify with Stripe
+        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+        if (subscription.status !== 'active' && subscription.status !== 'trialing') {
+            return res.status(400).json({ error: `Subscription status is ${subscription.status}, not active` });
+        }
+
+        // Verify this subscription belongs to this user's customer
+        const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+        if (user.stripeCustomerId !== subscription.customer) {
+            return res.status(403).json({ error: 'Subscription does not belong to this user' });
+        }
+
+        // Update DB
+        await prisma.user.update({
+            where: { id: req.user.id },
+            data: {
+                subscriptionStatus: 'ACTIVE',
+                stripeSubscriptionId: subscription.id,
+            },
+        });
+
+        console.log(`[Stripe] Subscription confirmed ACTIVE for user ${req.user.id}`);
+        res.json({ success: true, status: 'ACTIVE' });
+    } catch (error) {
+        console.error('[Stripe] Confirm subscription error:', error);
+        res.status(500).json({ error: error.message || 'Failed to confirm subscription' });
+    }
+});
+
+// POST /api/stripe/confirm-credit-payment — Frontend calls after successful credit purchase
+// Verifies payment with Stripe, then adds credits
+router.post('/confirm-credit-payment', authMiddleware, async (req, res) => {
+    try {
+        const stripe = getStripe();
+        if (!stripe) return res.status(400).json({ error: 'Stripe not configured' });
+
+        const { paymentIntentId } = req.body;
+        if (!paymentIntentId) return res.status(400).json({ error: 'paymentIntentId required' });
+
+        // Verify with Stripe
+        const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+        if (paymentIntent.status !== 'succeeded') {
+            return res.status(400).json({ error: `Payment status is ${paymentIntent.status}, not succeeded` });
+        }
+
+        // Check metadata
+        const { type, userId, credits, packId } = paymentIntent.metadata || {};
+        if (type !== 'credits' || userId !== req.user.id) {
+            return res.status(403).json({ error: 'Payment does not match this user or type' });
+        }
+
+        const creditAmount = parseInt(credits);
+        if (!creditAmount || creditAmount <= 0) {
+            return res.status(400).json({ error: 'Invalid credit amount in payment metadata' });
+        }
+
+        // Check if already processed (idempotency)
+        const existing = await prisma.aICredit.findFirst({
+            where: {
+                userId: req.user.id,
+                description: { contains: paymentIntentId },
+            },
+        });
+        if (existing) {
+            return res.json({ success: true, message: 'Already processed', credits: creditAmount });
+        }
+
+        // Add credits
+        const updatedUser = await prisma.user.update({
+            where: { id: req.user.id },
+            data: { credits: { increment: creditAmount } },
+        });
+
+        // Record transaction
+        await prisma.aICredit.create({
+            data: {
+                amount: creditAmount,
+                type: 'PURCHASE',
+                description: `Achat de ${creditAmount} crédits IA (${paymentIntentId})`,
+                userId: req.user.id,
+            },
+        });
+
+        console.log(`[Stripe] ${creditAmount} credits confirmed for user ${req.user.id}`);
+        res.json({ success: true, credits: updatedUser.credits });
+    } catch (error) {
+        console.error('[Stripe] Confirm credit payment error:', error);
+        res.status(500).json({ error: error.message || 'Failed to confirm credit payment' });
+    }
+});
+
 // ============ STRIPE CONNECT (Professors receiving payments) ============
 
 // POST /api/stripe/connect/create-account — Create Express account
