@@ -16,7 +16,7 @@ import {
     Eraser, Type, Square, Circle, Minus, Triangle, Camera, Trash2,
     Lock, Unlock, MessageSquare, Send, X, Grid3X3,
     Monitor, MonitorOff, ImagePlus, Cloud, Folder, ChevronRight, File, Paperclip, Download, BookOpen,
-    Plus, Edit3
+    Plus, Edit3, AlertTriangle
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -91,7 +91,22 @@ export default function Room() {
     }, [courseCode]);
 
     if (loading) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
-    if (error) return <div className="min-h-screen flex items-center justify-center">{error}</div>;
+    if (error) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-background/50 p-4">
+                <div className="bg-card text-card-foreground shadow-sm rounded-xl border border-red-500/20 p-8 max-w-md w-full text-center space-y-4">
+                    <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center mx-auto mb-2">
+                        <AlertTriangle className="w-8 h-8 text-red-500" />
+                    </div>
+                    <h2 className="text-xl font-bold">Accès refusé</h2>
+                    <p className="text-muted-foreground">{error}</p>
+                    <Button variant="outline" className="mt-6 w-full" onClick={() => navigate('/prof-dashboard')}>
+                        <ArrowLeft className="w-4 h-4 mr-2" /> Quitter
+                    </Button>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <LiveKitRoom
