@@ -73,6 +73,8 @@ export const useAuthStore = create(
                 return data;
             },
 
+            setProfile: (user) => set({ user }),
+
             logout: () => {
                 set({ user: null, token: null, error: null });
             },
