@@ -410,7 +410,7 @@ export default function ConnectOnboarding() {
                                                         <div className="flex items-center justify-end gap-2">
                                                             {inv.documentUrl && (
                                                                 <Button variant="ghost" size="sm" asChild className="h-8 w-8 p-0 text-primary hover:text-primary hover:bg-primary/10">
-                                                                    <a href={`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}${inv.documentUrl}`} target="_blank" rel="noopener noreferrer" title="Télécharger le document">
+                                                                    <a href={inv.documentUrl} target="_blank" rel="noopener noreferrer" title="Télécharger le document">
                                                                         <Download className="w-4 h-4" />
                                                                     </a>
                                                                 </Button>

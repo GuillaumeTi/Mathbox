@@ -257,7 +257,7 @@ export default function ParentDashboard() {
                                                                 )}
                                                                 {inv.documentUrl && (
                                                                     <Button size="sm" variant="ghost" asChild className="text-emerald-400 hover:text-emerald-300">
-                                                                        <a href={`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}${inv.documentUrl}`} target="_blank" rel="noopener noreferrer">
+                                                                        <a href={inv.documentUrl} target="_blank" rel="noopener noreferrer">
                                                                             <Download className="w-4 h-4 mr-2" />
                                                                             PDF
                                                                         </a>
