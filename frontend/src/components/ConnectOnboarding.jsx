@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import {
     CheckCircle, AlertTriangle, Loader2, Wallet,
-    CreditCard, ArrowDownToLine, Settings, FileText, Plus
+    CreditCard, ArrowDownToLine, Settings, FileText, Plus, Trash2
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { io } from 'socket.io-client';
@@ -79,6 +79,16 @@ export default function ConnectOnboarding() {
             alert('Erreur: ' + err.message);
         }
         setCreatingInvoice(false);
+    };
+
+    const handleDeleteInvoice = async (invoiceId) => {
+        if (!confirm('Voulez-vous vraiment supprimer cette facture ?')) return;
+        try {
+            await api.delete(`/invoices/${invoiceId}`);
+            setInvoices(invoices.filter((inv) => inv.id !== invoiceId));
+        } catch (err) {
+            alert('Erreur: ' + err.message);
+        }
     };
 
     // Initialize Stripe Connect instance
@@ -355,6 +365,7 @@ export default function ConnectOnboarding() {
                                                 <th className="pb-3 font-medium text-muted-foreground">Parent</th>
                                                 <th className="pb-3 font-medium text-muted-foreground">Montant</th>
                                                 <th className="pb-3 font-medium text-muted-foreground">Statut</th>
+                                                <th className="pb-3 font-medium text-muted-foreground"></th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -373,6 +384,19 @@ export default function ConnectOnboarding() {
                                                         >
                                                             {inv.status === 'PAID' ? 'Payé' : 'En attente'}
                                                         </Badge>
+                                                    </td>
+                                                    <td className="py-3 text-right">
+                                                        {inv.status === 'PENDING' && (
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="text-red-400 hover:text-red-500 hover:bg-red-500/10 h-8 w-8 p-0"
+                                                                onClick={() => handleDeleteInvoice(inv.id)}
+                                                                title="Supprimer la facture"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </Button>
+                                                        )}
                                                     </td>
                                                 </tr>
                                             ))}

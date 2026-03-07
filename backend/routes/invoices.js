@@ -216,4 +216,39 @@ router.post('/:id/verify', authMiddleware, async (req, res) => {
     }
 });
 
+// DELETE /api/invoices/:id — Professor deletes a pending invoice
+router.delete('/:id', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'PROFESSOR') {
+            return res.status(403).json({ error: 'Seul un professeur peut supprimer une facture' });
+        }
+
+        const invoiceId = req.params.id;
+        const invoice = await prisma.courseInvoice.findUnique({
+            where: { id: invoiceId }
+        });
+
+        if (!invoice) {
+            return res.status(404).json({ error: 'Facture introuvable' });
+        }
+
+        if (invoice.professorId !== req.user.id) {
+            return res.status(403).json({ error: 'Action non autorisée sur cette facture' });
+        }
+
+        if (invoice.status === 'PAID') {
+            return res.status(400).json({ error: 'Impossible de supprimer une facture déjà payée' });
+        }
+
+        await prisma.courseInvoice.delete({
+            where: { id: invoiceId }
+        });
+
+        res.json({ success: true, message: 'Facture supprimée' });
+    } catch (error) {
+        console.error('[Invoices] Delete error:', error);
+        res.status(500).json({ error: 'Erreur lors de la suppression de la facture' });
+    }
+});
+
 module.exports = router;
