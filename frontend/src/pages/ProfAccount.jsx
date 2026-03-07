@@ -10,7 +10,21 @@ import { ArrowLeft, CheckCircle, RefreshCw, XCircle, Search } from 'lucide-react
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
+let stripePromise = null;
+
+function getStripePromise() {
+    if (!stripePromise) {
+        stripePromise = fetch('/api/stripe/config')
+            .then(r => r.json())
+            .then(data => {
+                if (data.publishableKey) {
+                    return loadStripe(data.publishableKey);
+                }
+                return null;
+            }).catch(() => null);
+    }
+    return stripePromise;
+}
 
 function SetupForm() {
     const stripe = useStripe();
@@ -340,7 +354,7 @@ export default function ProfAccount() {
                                     <CardDescription>Mettez à jour la carte utilisée pour vos prélèvements</CardDescription>
                                 </CardHeader>
                                 <CardContent>
-                                    <Elements stripe={stripePromise} options={{
+                                    <Elements stripe={getStripePromise()} options={{
                                         clientSecret: stripeInfo.clientSecret,
                                         appearance: { theme: 'night', variables: { colorPrimary: '#3b82f6', colorBackground: '#09090b', colorText: '#f8fafc', colorDanger: '#ef4444', fontFamily: 'Inter, system-ui, sans-serif' } }
                                     }}>
