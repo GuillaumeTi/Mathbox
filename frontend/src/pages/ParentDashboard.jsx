@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
+    BookOpen, LogOut, FileText, User, Users, Brain, Plus, ChevronDown, ChevronRight,
     Copy, Check, MapPin, CreditCard, CheckSquare, Calendar, Clock, AlertCircle, ExternalLink, Link2, Download
 } from 'lucide-react';
 import { io } from 'socket.io-client';
