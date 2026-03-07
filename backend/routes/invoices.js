@@ -18,9 +18,9 @@ router.post('/create', authMiddleware, requireActiveTrial, async (req, res) => {
             return res.status(403).json({ error: 'Only professors can create invoices' });
         }
 
-        const { courseId, amount, description } = req.body;
-        if (!courseId || !amount) {
-            return res.status(400).json({ error: 'courseId and amount are required' });
+        const { courseId, hours, hourlyRate, discount, description } = req.body;
+        if (!courseId || !hours || !hourlyRate) {
+            return res.status(400).json({ error: 'courseId, hours, and hourlyRate are required' });
         }
 
         // Validate the course belongs to this professor and has a student
@@ -41,9 +41,17 @@ router.post('/create', authMiddleware, requireActiveTrial, async (req, res) => {
             return res.status(400).json({ error: "Cet élève n'a pas de parent associé" });
         }
 
+        const parsedHours = parseFloat(hours);
+        const parsedRate = parseFloat(hourlyRate);
+        const parsedDiscount = discount ? parseFloat(discount) : 0;
+        const amount = Math.max(0, (parsedHours * parsedRate) - parsedDiscount);
+
         const invoice = await prisma.courseInvoice.create({
             data: {
-                amount: parseFloat(amount),
+                amount,
+                hours: parsedHours,
+                hourlyRate: parsedRate,
+                discount: parsedDiscount,
                 description: description || `Cours: ${course.title || courseId}`,
                 courseId,
                 professorId: req.user.id,
@@ -82,7 +90,7 @@ router.get('/', authMiddleware, async (req, res) => {
             orderBy: { createdAt: 'desc' },
             include: {
                 course: { select: { title: true, code: true } },
-                professor: { select: { name: true } },
+                professor: { select: { name: true, tvaStatus: true } },
                 parent: { select: { name: true } },
             },
         });

@@ -235,37 +235,47 @@ export default function ParentDashboard() {
                                                     <tr className="border-b border-border text-left">
                                                         <th className="pb-3 font-medium text-muted-foreground">Date</th>
                                                         <th className="pb-3 font-medium text-muted-foreground">Description</th>
-                                                        <th className="pb-3 font-medium text-muted-foreground">Montant</th>
+                                                        <th className="pb-3 font-medium text-muted-foreground">Montant HT</th>
+                                                        <th className="pb-3 font-medium text-muted-foreground">TVA</th>
+                                                        <th className="pb-3 font-medium text-muted-foreground">TTC</th>
                                                         <th className="pb-3 font-medium text-muted-foreground">Statut</th>
                                                         <th className="pb-3 font-medium text-muted-foreground"></th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    {invoices.map(inv => (
-                                                        <tr key={inv.id} className="border-b border-border/50">
-                                                            <td className="py-3">{new Date(inv.createdAt).toLocaleDateString('fr-FR')}</td>
-                                                            <td className="py-3">{inv.description || 'Abonnement MathBox'}</td>
-                                                            <td className="py-3 font-medium">{inv.amount.toFixed(2)} €</td>
-                                                            <td className="py-3">
-                                                                <Badge variant={inv.status === 'PAID' ? 'success' : 'warning'}>
-                                                                    {inv.status === 'PAID' ? 'Payé' : 'En attente'}
-                                                                </Badge>
-                                                            </td>
-                                                            <td className="py-3 text-right">
-                                                                {inv.status === 'PENDING' && (
-                                                                    <Button size="sm" variant="outline" onClick={() => setPayingInvoice(inv)}>Payer</Button>
-                                                                )}
-                                                                {inv.documentUrl && (
-                                                                    <Button size="sm" variant="ghost" asChild className="text-emerald-400 hover:text-emerald-300">
-                                                                        <a href={inv.documentUrl} target="_blank" rel="noopener noreferrer">
-                                                                            <Download className="w-4 h-4 mr-2" />
-                                                                            PDF
-                                                                        </a>
-                                                                    </Button>
-                                                                )}
-                                                            </td>
-                                                        </tr>
-                                                    ))}
+                                                    {invoices.map(inv => {
+                                                        const isSubjectTva = inv.professor?.tvaStatus === 'SUBJECT_20';
+                                                        const amountTTC = inv.amount;
+                                                        const amountHT = isSubjectTva ? amountTTC / 1.2 : amountTTC;
+                                                        const amountTVA = isSubjectTva ? amountTTC - amountHT : 0;
+                                                        return (
+                                                            <tr key={inv.id} className="border-b border-border/50">
+                                                                <td className="py-3">{new Date(inv.createdAt).toLocaleDateString('fr-FR')}</td>
+                                                                <td className="py-3">{inv.description || 'Abonnement MathBox'}</td>
+                                                                <td className="py-3 font-medium">{amountHT.toFixed(2)} €</td>
+                                                                <td className="py-3 text-muted-foreground">{amountTVA.toFixed(2)} €</td>
+                                                                <td className="py-3 font-bold text-primary">{amountTTC.toFixed(2)} €</td>
+                                                                <td className="py-3">
+                                                                    <Badge variant={inv.status === 'PAID' ? 'success' : 'warning'}>
+                                                                        {inv.status === 'PAID' ? 'Payé' : 'En attente'}
+                                                                    </Badge>
+                                                                </td>
+                                                                <td className="py-3 text-right">
+                                                                    {inv.status === 'PENDING' && (
+                                                                        <Button size="sm" variant="outline" onClick={() => setPayingInvoice(inv)}>Payer</Button>
+                                                                    )}
+                                                                    {inv.documentUrl && (
+                                                                        <Button size="sm" variant="ghost" asChild className="text-emerald-400 hover:text-emerald-300">
+                                                                            <a href={inv.documentUrl} target="_blank" rel="noopener noreferrer">
+                                                                                <Download className="w-4 h-4 mr-2" />
+                                                                                PDF
+                                                                            </a>
+                                                                        </Button>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
                                                 </tbody>
                                             </table>
                                         </div>

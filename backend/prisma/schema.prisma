@@ -69,6 +69,12 @@ enum LegalStatus {
   INDIVIDUAL
 }
 
+enum TvaStatus {
+  FRANCHISE
+  EXONERATED
+  SUBJECT_20
+}
+
 // ============ MODELS ============
 
 model User {
@@ -95,6 +101,7 @@ model User {
 
   // Professional / Billing Status
   legalStatus    LegalStatus?
+  tvaStatus      TvaStatus?
   siret          String?
   companyName    String?
   commissionRate Float        @default(0.10)
@@ -285,6 +292,9 @@ model Invoice {
 model CourseInvoice {
   id          String        @id @default(uuid())
   amount      Float
+  hours       Float?
+  hourlyRate  Float?
+  discount    Float?        @default(0)
   status      InvoiceStatus @default(PENDING)
   description String?
   documentUrl String?

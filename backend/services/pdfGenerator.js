@@ -76,32 +76,85 @@ async function generateInvoicePDF(invoice, fileName) {
             }
             doc.moveDown(2);
 
-            // --- INVOICE DETAILS ---
+            // --- INVOICE CALCULATIONS ---
+            const tvaStatus = prof.tvaStatus || 'FRANCHISE';
+            const isSubjectTva = isPro && tvaStatus === 'SUBJECT_20';
+
+            const hours = invoice.hours || 1;
+            const rateTTC = invoice.hourlyRate || invoice.amount;
+            const discountTTC = invoice.discount || 0;
+
+            const rateHT = isSubjectTva ? rateTTC / 1.2 : rateTTC;
+            const baseHT = hours * rateHT;
+            const discountHT = isSubjectTva ? discountTTC / 1.2 : discountTTC;
+            const totalHT = baseHT - discountHT;
+
+            const amountTTC = invoice.amount;
+            const tvaAmount = isSubjectTva ? amountTTC - totalHT : 0;
+
+            // --- INVOICE DETAILS TABLE ---
             const tableTop = doc.y;
             doc.font('Helvetica-Bold');
             doc.text('Description', 50, tableTop);
-            doc.text('Montant TTC', 400, tableTop, { width: 100, align: 'right' });
+            doc.text('Qté (h)', 250, tableTop, { width: 50, align: 'right' });
+            doc.text('Prix Unit. HT', 320, tableTop, { width: 80, align: 'right' });
+            doc.text('Total HT', 420, tableTop, { width: 80, align: 'right' });
             doc.moveTo(50, tableTop + 15).lineTo(500, tableTop + 15).stroke();
             doc.moveDown();
 
             doc.font('Helvetica');
-            const itemY = doc.y + 10;
-            doc.text(invoice.description || 'Cours de mathématiques', 50, itemY);
-            doc.text(`${invoice.amount.toFixed(2)} €`, 400, itemY, { width: 100, align: 'right' });
+            let itemY = doc.y + 10;
+            const desc = invoice.description ? `${invoice.description} (Prestation en ligne)` : `Cours de mathématiques (Prestation en ligne)`;
 
-            doc.moveTo(50, itemY + 20).lineTo(500, itemY + 20).stroke();
+            // Primary Row
+            doc.text(desc, 50, itemY, { width: 200 });
+            doc.text(hours.toString(), 250, itemY, { width: 50, align: 'right' });
+            doc.text(`${rateHT.toFixed(2)} €`, 320, itemY, { width: 80, align: 'right' });
+            doc.text(`${baseHT.toFixed(2)} €`, 420, itemY, { width: 80, align: 'right' });
+            itemY += 20;
 
-            // --- TOTALS ---
-            const totalY = itemY + 30;
+            // Discount Row
+            if (discountHT > 0) {
+                doc.text('Remise appliquée', 50, itemY, { width: 200 });
+                doc.text('-', 250, itemY, { width: 50, align: 'right' });
+                doc.text(`-${discountHT.toFixed(2)} €`, 320, itemY, { width: 80, align: 'right' });
+                doc.text(`-${discountHT.toFixed(2)} €`, 420, itemY, { width: 80, align: 'right' });
+                itemY += 20;
+            }
+
+            doc.moveTo(50, itemY + 10).lineTo(500, itemY + 10).stroke();
+
+            // --- TOTALS BLOCK ---
+            let totalY = itemY + 25;
             doc.font('Helvetica-Bold');
-            doc.text('Total Payé:', 300, totalY, { width: 100, align: 'right' });
-            doc.text(`${invoice.amount.toFixed(2)} €`, 400, totalY, { width: 100, align: 'right' });
 
-            // Mentions Légales
+            if (isPro) {
+                doc.text('Total HT:', 300, totalY, { width: 100, align: 'right' });
+                doc.text(`${totalHT.toFixed(2)} €`, 420, totalY, { width: 80, align: 'right' });
+                totalY += 20;
+
+                doc.text('TVA (20%):', 300, totalY, { width: 100, align: 'right' });
+                doc.text(`${tvaAmount.toFixed(2)} €`, 420, totalY, { width: 80, align: 'right' });
+                totalY += 20;
+            }
+
+            doc.text(isPro ? 'Total TTC (Payé):' : 'Total Payé:', 250, totalY, { width: 150, align: 'right' });
+            doc.text(`${amountTTC.toFixed(2)} €`, 420, totalY, { width: 80, align: 'right' });
+
+            // --- MENTIONS LÉGALES ---
             doc.moveDown(4);
             doc.fontSize(8).font('Helvetica-Oblique');
+
             if (isPro) {
-                doc.text("TVA non applicable, art. 293 B du CGI (ou selon statut). Les paiements sont sécurisés par Stripe via la plateforme MathBox.", { align: 'center', width: 450 });
+                let legalMention = "";
+                if (tvaStatus === 'FRANCHISE') {
+                    legalMention = "TVA non applicable, article 293 B du Code Général des Impôts.";
+                } else if (tvaStatus === 'EXONERATED') {
+                    legalMention = "Exonération de TVA, article 261, 4, 4° b du Code Général des Impôts.";
+                } else {
+                    legalMention = "Prestation assujettie à la TVA au taux de 20%.";
+                }
+                doc.text(`${legalMention} Les paiements sont sécurisés par Stripe via la plateforme MathBox.`, { align: 'center', width: 450 });
             } else {
                 doc.text("Ceci est un reçu confirmant le paiement à un particulier. Les paiements sont sécurisés par Stripe via la plateforme MathBox.", { align: 'center', width: 450 });
             }

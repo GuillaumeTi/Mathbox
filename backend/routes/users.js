@@ -17,6 +17,7 @@ router.put('/profile', authMiddleware, async (req, res) => {
             siret,
             companyName,
             commissionRate,
+            tvaStatus,
         } = req.body;
 
         // Basic validation for SIRET if PRO
@@ -31,6 +32,7 @@ router.put('/profile', authMiddleware, async (req, res) => {
         if (legalStatus !== undefined) updateData.legalStatus = legalStatus;
         if (siret !== undefined) updateData.siret = siret;
         if (companyName !== undefined) updateData.companyName = companyName;
+        if (tvaStatus !== undefined) updateData.tvaStatus = tvaStatus;
 
         // Safety lock on commissionRate overrides (e.g. users sending fake rates)
         // We calculate it natively: 10% for individual, 5% for PRO.
@@ -54,6 +56,7 @@ router.put('/profile', authMiddleware, async (req, res) => {
                 legalStatus: true,
                 siret: true,
                 companyName: true,
+                tvaStatus: true,
                 commissionRate: true,
                 role: true,
             }

@@ -30,7 +30,7 @@ export default function ConnectOnboarding() {
     // Invoice state
     const [invoices, setInvoices] = useState([]);
     const [courses, setCourses] = useState([]);
-    const [invoiceForm, setInvoiceForm] = useState({ courseId: '', amount: '', description: '' });
+    const [invoiceForm, setInvoiceForm] = useState({ courseId: '', hours: '', hourlyRate: '', discount: '', description: '' });
     const [creatingInvoice, setCreatingInvoice] = useState(false);
     const [invoiceSuccess, setInvoiceSuccess] = useState(false);
 
@@ -72,7 +72,7 @@ export default function ConnectOnboarding() {
         setInvoiceSuccess(false);
         try {
             await api.post('/invoices/create', invoiceForm);
-            setInvoiceForm({ courseId: '', amount: '', description: '' });
+            setInvoiceForm({ courseId: '', hours: '', hourlyRate: '', discount: '', description: '' });
             setInvoiceSuccess(true);
             setTimeout(() => setInvoiceSuccess(false), 3000);
             fetchInvoices();
@@ -337,20 +337,45 @@ export default function ConnectOnboarding() {
                                             ))}
                                         </select>
                                     </div>
-                                    <div className="space-y-2">
-                                        <Label>Montant (€)</Label>
-                                        <Input
-                                            type="number"
-                                            min="1"
-                                            step="0.01"
-                                            placeholder="30.00"
-                                            value={invoiceForm.amount}
-                                            onChange={(e) => setInvoiceForm({ ...invoiceForm, amount: e.target.value })}
-                                            required
-                                        />
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <div className="space-y-2">
+                                            <Label>Nb d'heures</Label>
+                                            <Input
+                                                type="number"
+                                                min="0.5"
+                                                step="0.5"
+                                                placeholder="1.5"
+                                                value={invoiceForm.hours}
+                                                onChange={(e) => setInvoiceForm({ ...invoiceForm, hours: e.target.value })}
+                                                required
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label>Taux horaire (€)</Label>
+                                            <Input
+                                                type="number"
+                                                min="1"
+                                                step="0.5"
+                                                placeholder="30"
+                                                value={invoiceForm.hourlyRate}
+                                                onChange={(e) => setInvoiceForm({ ...invoiceForm, hourlyRate: e.target.value })}
+                                                required
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label>Remise (€)</Label>
+                                            <Input
+                                                type="number"
+                                                min="0"
+                                                step="0.5"
+                                                placeholder="0.00"
+                                                value={invoiceForm.discount}
+                                                onChange={(e) => setInvoiceForm({ ...invoiceForm, discount: e.target.value })}
+                                            />
+                                        </div>
                                     </div>
                                     <div className="space-y-2">
-                                        <Label>Description</Label>
+                                        <Label>Description optionnelle</Label>
                                         <Input
                                             placeholder="Cours de mars"
                                             value={invoiceForm.description}
@@ -358,6 +383,16 @@ export default function ConnectOnboarding() {
                                         />
                                     </div>
                                 </div>
+
+                                {invoiceForm.hours && invoiceForm.hourlyRate && (
+                                    <div className="p-3 bg-card border border-border/50 rounded-lg flex justify-between items-center text-sm shadow-sm">
+                                        <span className="text-muted-foreground">Simulation du montant total :</span>
+                                        <span className="font-semibold text-emerald-400">
+                                            {Math.max(0, (parseFloat(invoiceForm.hours) * parseFloat(invoiceForm.hourlyRate)) - (parseFloat(invoiceForm.discount) || 0)).toFixed(2)} €
+                                            {user?.tvaStatus === 'SUBJECT_20' ? ' TTC' : ' HT'}
+                                        </span>
+                                    </div>
+                                )}
                                 <div className="flex items-center gap-3">
                                     <Button type="submit" variant="glow" size="sm" disabled={creatingInvoice}>
                                         {creatingInvoice ? 'Envoi...' : 'Envoyer la facture'}
@@ -384,52 +419,62 @@ export default function ConnectOnboarding() {
                                                 <th className="pb-3 font-medium text-muted-foreground">Date</th>
                                                 <th className="pb-3 font-medium text-muted-foreground">Cours</th>
                                                 <th className="pb-3 font-medium text-muted-foreground">Parent</th>
-                                                <th className="pb-3 font-medium text-muted-foreground">Montant</th>
+                                                <th className="pb-3 font-medium text-muted-foreground">Montant HT</th>
+                                                <th className="pb-3 font-medium text-muted-foreground">TVA</th>
+                                                <th className="pb-3 font-medium text-muted-foreground">TTC</th>
                                                 <th className="pb-3 font-medium text-muted-foreground">Statut</th>
                                                 <th className="pb-3 font-medium text-muted-foreground"></th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {invoices.map(inv => (
-                                                <tr key={inv.id} className="border-b border-border/50">
-                                                    <td className="py-3">{new Date(inv.createdAt).toLocaleDateString('fr-FR')}</td>
-                                                    <td className="py-3">{inv.course?.title || '—'}</td>
-                                                    <td className="py-3">{inv.parent?.name || '—'}</td>
-                                                    <td className="py-3 font-medium">{inv.amount.toFixed(2)} €</td>
-                                                    <td className="py-3">
-                                                        <Badge variant={inv.status === 'PAID' ? 'success' : 'warning'}
-                                                            className={inv.status === 'PAID'
-                                                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                                                                : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                                                            }
-                                                        >
-                                                            {inv.status === 'PAID' ? 'Payé' : 'En attente'}
-                                                        </Badge>
-                                                    </td>
-                                                    <td className="py-3 text-right">
-                                                        <div className="flex items-center justify-end gap-2">
-                                                            {inv.documentUrl && (
-                                                                <Button variant="ghost" size="sm" asChild className="h-8 w-8 p-0 text-primary hover:text-primary hover:bg-primary/10">
-                                                                    <a href={inv.documentUrl} target="_blank" rel="noopener noreferrer" title="Télécharger le document">
-                                                                        <Download className="w-4 h-4" />
-                                                                    </a>
-                                                                </Button>
-                                                            )}
-                                                            {inv.status === 'PENDING' && (
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    className="text-red-400 hover:text-red-500 hover:bg-red-500/10 h-8 w-8 p-0"
-                                                                    onClick={() => handleDeleteInvoice(inv.id)}
-                                                                    title="Supprimer la facture"
-                                                                >
-                                                                    <Trash2 className="w-4 h-4" />
-                                                                </Button>
-                                                            )}
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ))}
+                                            {invoices.map(inv => {
+                                                const isSubjectTva = user?.tvaStatus === 'SUBJECT_20';
+                                                const amountTTC = inv.amount;
+                                                const amountHT = isSubjectTva ? amountTTC / 1.2 : amountTTC;
+                                                const amountTVA = isSubjectTva ? amountTTC - amountHT : 0;
+                                                return (
+                                                    <tr key={inv.id} className="border-b border-border/50">
+                                                        <td className="py-3">{new Date(inv.createdAt).toLocaleDateString('fr-FR')}</td>
+                                                        <td className="py-3">{inv.course?.title || '—'}</td>
+                                                        <td className="py-3">{inv.parent?.name || '—'}</td>
+                                                        <td className="py-3 font-medium">{amountHT.toFixed(2)} €</td>
+                                                        <td className="py-3 text-muted-foreground">{amountTVA.toFixed(2)} €</td>
+                                                        <td className="py-3 font-bold text-primary">{amountTTC.toFixed(2)} €</td>
+                                                        <td className="py-3">
+                                                            <Badge variant={inv.status === 'PAID' ? 'success' : 'warning'}
+                                                                className={inv.status === 'PAID'
+                                                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                                                    : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                                                                }
+                                                            >
+                                                                {inv.status === 'PAID' ? 'Payé' : 'En attente'}
+                                                            </Badge>
+                                                        </td>
+                                                        <td className="py-3 text-right">
+                                                            <div className="flex items-center justify-end gap-2">
+                                                                {inv.documentUrl && (
+                                                                    <Button variant="ghost" size="sm" asChild className="h-8 w-8 p-0 text-primary hover:text-primary hover:bg-primary/10">
+                                                                        <a href={inv.documentUrl} target="_blank" rel="noopener noreferrer" title="Télécharger le document">
+                                                                            <Download className="w-4 h-4" />
+                                                                        </a>
+                                                                    </Button>
+                                                                )}
+                                                                {inv.status === 'PENDING' && (
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        className="text-red-400 hover:text-red-500 hover:bg-red-500/10 h-8 w-8 p-0"
+                                                                        onClick={() => handleDeleteInvoice(inv.id)}
+                                                                        title="Supprimer la facture"
+                                                                    >
+                                                                        <Trash2 className="w-4 h-4" />
+                                                                    </Button>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
                                         </tbody>
                                     </table>
                                 </div>

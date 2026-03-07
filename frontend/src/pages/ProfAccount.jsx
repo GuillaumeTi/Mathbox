@@ -90,6 +90,7 @@ export default function ProfAccount() {
         phone: '',
         address: '',
         legalStatus: 'INDIVIDUAL',
+        tvaStatus: 'FRANCHISE',
         siret: '',
         companyName: '',
     });
@@ -121,6 +122,7 @@ export default function ProfAccount() {
                     phone: refreshedUser.phone || '',
                     address: refreshedUser.address || '',
                     legalStatus: refreshedUser.legalStatus || 'INDIVIDUAL',
+                    tvaStatus: refreshedUser.tvaStatus || 'FRANCHISE',
                     siret: refreshedUser.siret || '',
                     companyName: refreshedUser.companyName || '',
                 });
@@ -270,6 +272,24 @@ export default function ProfAccount() {
 
                                     {form.legalStatus === 'PRO' && (
                                         <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-4">
+                                            <div className="space-y-3">
+                                                <Label className="text-primary font-medium">Assujettissement à la TVA</Label>
+                                                <div className="space-y-2">
+                                                    <label className="flex items-center gap-2 cursor-pointer">
+                                                        <input type="radio" value="FRANCHISE" checked={form.tvaStatus === 'FRANCHISE'} onChange={e => setForm({ ...form, tvaStatus: 'FRANCHISE' })} className="accent-primary" />
+                                                        <span className="text-sm">Non, je suis en franchise en base (Auto-entrepreneur)</span>
+                                                    </label>
+                                                    <label className="flex items-center gap-2 cursor-pointer">
+                                                        <input type="radio" value="EXONERATED" checked={form.tvaStatus === 'EXONERATED'} onChange={e => setForm({ ...form, tvaStatus: 'EXONERATED' })} className="accent-primary" />
+                                                        <span className="text-sm">Non, je bénéficie de l'exonération pour l'enseignement</span>
+                                                    </label>
+                                                    <label className="flex items-center gap-2 cursor-pointer">
+                                                        <input type="radio" value="SUBJECT_20" checked={form.tvaStatus === 'SUBJECT_20'} onChange={e => setForm({ ...form, tvaStatus: 'SUBJECT_20' })} className="accent-primary" />
+                                                        <span className="text-sm">Oui, je facture la TVA (20%)</span>
+                                                    </label>
+                                                </div>
+                                            </div>
+
                                             <div className="space-y-2 relative">
                                                 <Label className="text-primary font-medium">Numéro SIRET / SIREN</Label>
                                                 <div className="flex gap-2">
