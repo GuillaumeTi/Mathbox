@@ -313,14 +313,34 @@ router.post('/stripe', async (req, res) => {
 
                 // Course invoice payment (marketplace)
                 if (metadata.type === 'course_invoice' && metadata.courseInvoiceId) {
-                    await prisma.courseInvoice.update({
+                    const invoice = await prisma.courseInvoice.findUnique({
                         where: { id: metadata.courseInvoiceId },
-                        data: {
-                            status: 'PAID',
-                            stripePaymentIntentId: paymentIntent.id,
-                            paidAt: new Date(),
-                        },
+                        include: { professor: true, parent: true }
                     });
+
+                    if (invoice && invoice.status !== 'PAID') {
+                        const isPro = invoice.professor.legalStatus === 'PRO';
+                        const docType = isPro ? 'INVOICE' : 'RECEIPT';
+                        const fileName = `${docType.toLowerCase()}-${invoice.id.split('-')[0]}.pdf`;
+
+                        let documentUrl = null;
+                        try {
+                            documentUrl = await generateInvoicePDF(invoice, fileName);
+                        } catch (pdfErr) {
+                            console.error('[Stripe Webhook] PDF Generation failed', pdfErr);
+                        }
+
+                        await prisma.courseInvoice.update({
+                            where: { id: invoice.id },
+                            data: {
+                                status: 'PAID',
+                                stripePaymentIntentId: paymentIntent.id,
+                                paidAt: new Date(),
+                                documentUrl,
+                                type: docType
+                            },
+                        });
+                    }
 
                     const io = req.app.get('io');
                     if (io && metadata.professorId && metadata.parentId) {

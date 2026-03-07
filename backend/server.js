@@ -48,6 +48,7 @@ app.use('/api/shop', require('./routes/shop'));
 app.use('/api/storage', require('./routes/storage'));
 app.use('/api/invite', require('./routes/invite'));
 app.use('/api/invoices', require('./routes/invoices'));
+app.use('/api/users', require('./routes/users'));
 app.use('/api/stripe', require('./routes/stripe'));
 
 // ============ SOCKET.IO ============

@@ -171,6 +171,12 @@ router.post('/login', async (req, res) => {
                 credits: user.credits,
                 subscriptionStatus: user.subscriptionStatus,
                 needsPasswordSetup: user.needsPasswordSetup,
+                legalStatus: user.legalStatus,
+                siret: user.siret,
+                companyName: user.companyName,
+                commissionRate: user.commissionRate,
+                phone: user.phone,
+                address: user.address,
             },
             token,
         });
@@ -346,8 +352,15 @@ router.get('/me', authMiddleware, async (req, res) => {
                 subscriptionStatus: true,
                 avatarUrl: true,
                 street: true,
+                street: true,
                 city: true,
                 zipCode: true,
+                address: true,
+                phone: true,
+                legalStatus: true,
+                siret: true,
+                companyName: true,
+                commissionRate: true,
                 parentId: true,
                 needsPasswordSetup: true,
                 trialStartDate: true,
@@ -413,7 +426,8 @@ router.put('/profile', authMiddleware, async (req, res) => {
             select: {
                 id: true, email: true, username: true, name: true, role: true,
                 subjects: true, credits: true, avatarUrl: true,
-                street: true, city: true, zipCode: true,
+                street: true, city: true, zipCode: true, address: true, phone: true,
+                legalStatus: true, siret: true, companyName: true, commissionRate: true,
             },
         });
 

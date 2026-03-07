@@ -3,6 +3,7 @@ const { PrismaClient } = require('@prisma/client');
 const authMiddleware = require('../middleware/auth');
 const { getStripe } = require('../services/stripe');
 const { requireActiveTrial } = require('../middleware/trialGuard');
+const { generateInvoicePDF } = require('../services/pdfGenerator');
 
 const prisma = new PrismaClient();
 
@@ -107,7 +108,7 @@ router.post('/:id/pay', authMiddleware, async (req, res) => {
         const invoice = await prisma.courseInvoice.findFirst({
             where: { id: req.params.id, parentId: req.user.id, status: 'PENDING' },
             include: {
-                professor: { select: { stripeAccountId: true, name: true } },
+                professor: { select: { stripeAccountId: true, name: true, commissionRate: true } },
             },
         });
 
@@ -120,7 +121,9 @@ router.post('/:id/pay', authMiddleware, async (req, res) => {
         }
 
         const amountCents = Math.round(invoice.amount * 100);
-        const applicationFeeCents = Math.round(amountCents * APPLICATION_FEE_PERCENT / 100);
+        // Fallback to 10% if commissionRate is missing for some reason
+        const commissionRate = invoice.professor.commissionRate || 0.10;
+        const applicationFeeCents = Math.round(amountCents * commissionRate);
 
         // Ensure parent has a Stripe customer
         let parentUser = await prisma.user.findUnique({
@@ -180,7 +183,8 @@ router.post('/:id/verify', authMiddleware, async (req, res) => {
         if (!stripe) return res.status(400).json({ error: 'Stripe not configured' });
 
         const invoice = await prisma.courseInvoice.findUnique({
-            where: { id: req.params.id }
+            where: { id: req.params.id },
+            include: { professor: true, parent: true }
         });
 
         if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
@@ -191,11 +195,24 @@ router.post('/:id/verify', authMiddleware, async (req, res) => {
         const paymentIntent = await stripe.paymentIntents.retrieve(invoice.stripePaymentIntentId);
 
         if (paymentIntent.status === 'succeeded') {
+            const isPro = invoice.professor.legalStatus === 'PRO';
+            const docType = isPro ? 'INVOICE' : 'RECEIPT';
+            const fileName = `${docType.toLowerCase()}-${invoice.id.split('-')[0]}.pdf`;
+
+            let documentUrl = null;
+            try {
+                documentUrl = await generateInvoicePDF(invoice, fileName);
+            } catch (pdfErr) {
+                console.error('[Invoices] PDF Generation failed', pdfErr);
+            }
+
             await prisma.courseInvoice.update({
                 where: { id: invoice.id },
                 data: {
                     status: 'PAID',
                     paidAt: new Date(),
+                    documentUrl,
+                    type: docType
                 },
             });
 

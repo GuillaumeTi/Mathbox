@@ -10,6 +10,7 @@ import Room from './pages/Room';
 import Cloud from './pages/Cloud';
 import Shop from './pages/Shop';
 import Billing from './pages/Billing';
+import ProfAccount from './pages/ProfAccount';
 import InvitePage from './pages/InvitePage';
 import MagicLogin from './pages/MagicLogin';
 
@@ -54,6 +55,9 @@ export default function App() {
                 } />
                 <Route path="/shop" element={
                     <ProtectedRoute allowedRoles={['PROFESSOR']}><Shop /></ProtectedRoute>
+                } />
+                <Route path="/prof/account" element={
+                    <ProtectedRoute allowedRoles={['PROFESSOR']}><ProfAccount /></ProtectedRoute>
                 } />
 
                 {/* Parent */}

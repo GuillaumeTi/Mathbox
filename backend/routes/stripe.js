@@ -358,6 +358,26 @@ router.post('/confirm-credit-payment', authMiddleware, async (req, res) => {
     }
 });
 
+// POST /api/stripe/create-setup-intent — Update default payment method
+router.post('/create-setup-intent', authMiddleware, async (req, res) => {
+    try {
+        const stripe = getStripe();
+        if (!stripe) return res.status(400).json({ error: 'Stripe not configured' });
+
+        const customerId = await ensureStripeCustomer(req.user.id);
+
+        const setupIntent = await stripe.setupIntents.create({
+            customer: customerId,
+            payment_method_types: ['card'],
+        });
+
+        res.json({ clientSecret: setupIntent.client_secret });
+    } catch (error) {
+        console.error('[Stripe] Create SetupIntent error:', error);
+        res.status(500).json({ error: 'Failed to create setup intent' });
+    }
+});
+
 // ============ STRIPE CONNECT (Professors receiving payments) ============
 
 // POST /api/stripe/connect/create-account — Create Express account
@@ -373,12 +393,14 @@ router.post('/connect/create-account', authMiddleware, async (req, res) => {
         // Check if already has an account
         const user = await prisma.user.findUnique({
             where: { id: req.user.id },
-            select: { stripeAccountId: true, email: true, name: true },
+            select: { stripeAccountId: true, email: true, name: true, legalStatus: true },
         });
 
         if (user.stripeAccountId) {
             return res.json({ accountId: user.stripeAccountId, alreadyExists: true });
         }
+
+        const businessType = user.legalStatus === 'PRO' ? 'company' : 'individual';
 
         // Create Express account
         const account = await stripe.accounts.create({
@@ -389,7 +411,7 @@ router.post('/connect/create-account', authMiddleware, async (req, res) => {
                 card_payments: { requested: true },
                 transfers: { requested: true },
             },
-            business_type: 'individual',
+            business_type: businessType,
             metadata: { userId: req.user.id },
         });
 

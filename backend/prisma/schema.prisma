@@ -56,6 +56,17 @@ enum Recurrence {
 enum InvoiceStatus {
   PAID
   PENDING
+  CANCELLED
+}
+
+enum InvoiceType {
+  INVOICE
+  RECEIPT
+}
+
+enum LegalStatus {
+  PRO
+  INDIVIDUAL
 }
 
 // ============ MODELS ============
@@ -79,6 +90,14 @@ model User {
   street  String?
   city    String?
   zipCode String?
+  address  String?
+  phone    String?
+
+  // Professional / Billing Status
+  legalStatus    LegalStatus?
+  siret          String?
+  companyName    String?
+  commissionRate Float        @default(0.10)
 
   // Magic link first-login
   needsPasswordSetup Boolean @default(false)
@@ -268,6 +287,8 @@ model CourseInvoice {
   amount      Float
   status      InvoiceStatus @default(PENDING)
   description String?
+  documentUrl String?
+  type        InvoiceType?
 
   // Relations
   courseId    String

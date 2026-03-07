@@ -9,8 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
-    BookOpen, LogOut, FileText, User, Users, Brain, Plus, ChevronDown, ChevronRight,
-    Copy, Check, MapPin, CreditCard, CheckSquare, Calendar, Clock, AlertCircle, ExternalLink, Link2
+    Copy, Check, MapPin, CreditCard, CheckSquare, Calendar, Clock, AlertCircle, ExternalLink, Link2, Download
 } from 'lucide-react';
 import { io } from 'socket.io-client';
 
@@ -251,13 +250,16 @@ export default function ParentDashboard() {
                                                                     {inv.status === 'PAID' ? 'Payé' : 'En attente'}
                                                                 </Badge>
                                                             </td>
-                                                            <td className="py-3">
+                                                            <td className="py-3 text-right">
                                                                 {inv.status === 'PENDING' && (
                                                                     <Button size="sm" variant="outline" onClick={() => setPayingInvoice(inv)}>Payer</Button>
                                                                 )}
-                                                                {inv.fileUrl && (
-                                                                    <Button size="sm" variant="ghost" asChild>
-                                                                        <a href={inv.fileUrl} target="_blank" rel="noopener noreferrer">PDF</a>
+                                                                {inv.documentUrl && (
+                                                                    <Button size="sm" variant="ghost" asChild className="text-emerald-400 hover:text-emerald-300">
+                                                                        <a href={`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}${inv.documentUrl}`} target="_blank" rel="noopener noreferrer">
+                                                                            <Download className="w-4 h-4 mr-2" />
+                                                                            PDF
+                                                                        </a>
                                                                     </Button>
                                                                 )}
                                                             </td>
@@ -591,6 +593,6 @@ export default function ParentDashboard() {
                     setInvoices(prev => prev.map(i => i.id === payingInvoice?.id ? { ...i, status: 'PAID' } : i));
                 }}
             />
-        </div>
+        </div >
     );
 }

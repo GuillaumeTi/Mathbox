@@ -312,6 +312,9 @@ export default function ProfDashboard() {
                                 Facturation {isLocked && <AlertTriangle className="w-3 h-3 ml-1 text-red-500" title="Abonnement requis" />}
                             </Button>
                         </Link>
+                        <Link to="/prof/account">
+                            <Button variant="ghost" size="sm"><Brain className="w-4 h-4 mr-1.5" />Mon Compte</Button>
+                        </Link>
                         <Link to="/shop">
                             <Button variant="ghost" size="sm"><ShoppingBag className="w-4 h-4 mr-1.5" />Boutique</Button>
                         </Link>

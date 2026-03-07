@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import {
     ConnectComponentsProvider,
     ConnectAccountOnboarding,
@@ -14,7 +15,7 @@ import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import {
     CheckCircle, AlertTriangle, Loader2, Wallet,
-    CreditCard, ArrowDownToLine, Settings, FileText, Plus, Trash2
+    CreditCard, ArrowDownToLine, Settings, FileText, Plus, Trash2, Download
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { io } from 'socket.io-client';
@@ -182,8 +183,28 @@ export default function ConnectOnboarding() {
         );
     }
 
+    // Profile Completeness Check Guard
+    const isProfileComplete = user?.phone && user?.address && user?.legalStatus && !(user?.legalStatus === 'PRO' && !user?.siret);
+
     // No account yet — show CTA
     if (!connectStatus?.hasAccount) {
+        if (!isProfileComplete) {
+            return (
+                <Card className="border-amber-500/30">
+                    <CardContent className="py-8 text-center space-y-4">
+                        <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto opacity-80" />
+                        <h3 className="text-lg font-semibold text-amber-500">Profil Incomplet</h3>
+                        <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                            Vous devez compléter votre profil (téléphone, adresse postale, et statut légal) avant de configurer vos paiements.
+                        </p>
+                        <Button variant="glow" asChild>
+                            <Link to="/prof/account"><Settings className="w-4 h-4 mr-2" />Compléter mon profil</Link>
+                        </Button>
+                    </CardContent>
+                </Card>
+            );
+        }
+
         return (
             <Card>
                 <CardContent className="py-8 text-center space-y-4">
@@ -386,17 +407,26 @@ export default function ConnectOnboarding() {
                                                         </Badge>
                                                     </td>
                                                     <td className="py-3 text-right">
-                                                        {inv.status === 'PENDING' && (
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                className="text-red-400 hover:text-red-500 hover:bg-red-500/10 h-8 w-8 p-0"
-                                                                onClick={() => handleDeleteInvoice(inv.id)}
-                                                                title="Supprimer la facture"
-                                                            >
-                                                                <Trash2 className="w-4 h-4" />
-                                                            </Button>
-                                                        )}
+                                                        <div className="flex items-center justify-end gap-2">
+                                                            {inv.documentUrl && (
+                                                                <Button variant="ghost" size="sm" asChild className="h-8 w-8 p-0 text-primary hover:text-primary hover:bg-primary/10">
+                                                                    <a href={`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}${inv.documentUrl}`} target="_blank" rel="noopener noreferrer" title="Télécharger le document">
+                                                                        <Download className="w-4 h-4" />
+                                                                    </a>
+                                                                </Button>
+                                                            )}
+                                                            {inv.status === 'PENDING' && (
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className="text-red-400 hover:text-red-500 hover:bg-red-500/10 h-8 w-8 p-0"
+                                                                    onClick={() => handleDeleteInvoice(inv.id)}
+                                                                    title="Supprimer la facture"
+                                                                >
+                                                                    <Trash2 className="w-4 h-4" />
+                                                                </Button>
+                                                            )}
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             ))}
