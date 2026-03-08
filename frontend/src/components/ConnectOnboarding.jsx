@@ -83,10 +83,10 @@ export default function ConnectOnboarding() {
     };
 
     const handleDeleteInvoice = async (invoiceId) => {
-        if (!confirm('Voulez-vous vraiment supprimer cette facture ?')) return;
+        if (!confirm('Voulez-vous vraiment annuler cette facture ?')) return;
         try {
             await api.delete(`/invoices/${invoiceId}`);
-            setInvoices(invoices.filter((inv) => inv.id !== invoiceId));
+            fetchInvoices();
         } catch (err) {
             alert('Erreur: ' + err.message);
         }
@@ -339,7 +339,7 @@ export default function ConnectOnboarding() {
                                     </div>
                                     <div className="grid grid-cols-3 gap-2">
                                         <div className="space-y-2">
-                                            <Label>Nb d'heures</Label>
+                                            <Label className="text-xs">Nb d'heures</Label>
                                             <Input
                                                 type="number"
                                                 min="0.5"
@@ -351,7 +351,7 @@ export default function ConnectOnboarding() {
                                             />
                                         </div>
                                         <div className="space-y-2">
-                                            <Label>Taux horaire (€)</Label>
+                                            <Label className="text-xs">Taux horaire (€)</Label>
                                             <Input
                                                 type="number"
                                                 min="1"
@@ -363,7 +363,7 @@ export default function ConnectOnboarding() {
                                             />
                                         </div>
                                         <div className="space-y-2">
-                                            <Label>Remise (€)</Label>
+                                            <Label className="text-xs">Remise (€)</Label>
                                             <Input
                                                 type="number"
                                                 min="0"
@@ -387,7 +387,14 @@ export default function ConnectOnboarding() {
                                 <div className="p-3 bg-card border border-border/50 rounded-lg flex justify-between items-center text-sm shadow-sm">
                                     <span className="text-muted-foreground">Simulation du montant final TTC :</span>
                                     <span className="font-semibold text-emerald-400">
-                                        {Math.max(0, (parseFloat(invoiceForm.hours) * parseFloat(invoiceForm.hourlyRate)) - (parseFloat(invoiceForm.discount) || 0)).toFixed(2)} €
+                                        {(() => {
+                                            const hrs = parseFloat(invoiceForm.hours);
+                                            const rate = parseFloat(invoiceForm.hourlyRate);
+                                            if (!isNaN(hrs) && !isNaN(rate)) {
+                                                return Math.max(0, (hrs * rate) - (parseFloat(invoiceForm.discount) || 0)).toFixed(2);
+                                            }
+                                            return '0.00';
+                                        })()} €
                                     </span>
                                 </div>
                                 <div className="flex items-center gap-3">
@@ -414,6 +421,7 @@ export default function ConnectOnboarding() {
                                         <thead>
                                             <tr className="border-b border-border text-left">
                                                 <th className="pb-3 font-medium text-muted-foreground">Date</th>
+                                                <th className="pb-3 font-medium text-muted-foreground">Type</th>
                                                 <th className="pb-3 font-medium text-muted-foreground">Cours</th>
                                                 <th className="pb-3 font-medium text-muted-foreground">Parent</th>
                                                 <th className="pb-3 font-medium text-muted-foreground">Montant TTC</th>
@@ -437,16 +445,18 @@ export default function ConnectOnboarding() {
                                                             {amountTTC.toFixed(2)} €
                                                         </td>
                                                         <td className="py-3">
-                                                            <Badge variant={inv.status === 'PAID' ? 'success' : inv.status === 'CANCELLED' ? 'destructive' : 'warning'}
-                                                                className={inv.status === 'PAID'
-                                                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                                                                    : inv.status === 'CANCELLED'
-                                                                        ? 'bg-red-500/10 text-red-400 border-red-500/30'
-                                                                        : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                                                                }
-                                                            >
-                                                                {inv.status === 'PAID' ? 'Payé' : 'En attente'}
-                                                            </Badge>
+                                                            {inv.type !== 'CREDIT_NOTE' && (
+                                                                <Badge variant={inv.status === 'PAID' ? 'success' : inv.status === 'CANCELLED' ? 'destructive' : 'warning'}
+                                                                    className={inv.status === 'PAID'
+                                                                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                                                        : inv.status === 'CANCELLED'
+                                                                            ? 'bg-red-500/10 text-red-400 border-red-500/30'
+                                                                            : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                                                                    }
+                                                                >
+                                                                    {inv.status === 'PAID' ? 'Payé' : inv.status === 'CANCELLED' ? 'Annulé' : 'En attente'}
+                                                                </Badge>
+                                                            )}
                                                         </td>
                                                         <td className="py-3 text-right">
                                                             <div className="flex items-center justify-end gap-2">

@@ -104,7 +104,14 @@ router.get('/', authMiddleware, async (req, res) => {
         if (req.user.role === 'PROFESSOR') {
             where = { professorId: req.user.id };
         } else if (req.user.role === 'PARENT') {
-            where = { parentId: req.user.id };
+            where = {
+                parentId: req.user.id,
+                status: { not: 'CANCELLED' },
+                OR: [
+                    { type: { not: 'CREDIT_NOTE' } },
+                    { type: null }
+                ]
+            };
         } else {
             return res.status(403).json({ error: 'Access denied' });
         }
