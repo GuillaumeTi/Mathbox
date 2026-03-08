@@ -151,6 +151,9 @@ async function generateInvoicePDF(invoice, fileName, isPaid = true) {
             doc.text(totalText, 250, totalY, { width: 150, align: 'right' });
             doc.text(`${amountTTC.toFixed(2)} €`, 420, totalY, { width: 80, align: 'right' });
 
+            // Store safe Y coordinate before any stamp translations
+            const postTotalY = totalY + 40;
+
             // --- RED STAMP "PAYÉ" ---
             if (isPaid && invoice.type !== 'CREDIT_NOTE') {
                 doc.save();
@@ -172,8 +175,8 @@ async function generateInvoicePDF(invoice, fileName, isPaid = true) {
             }
 
             // --- MENTIONS LÉGALES ---
-            doc.moveDown(4);
             doc.fontSize(8).font('Helvetica-Oblique');
+            const legalTextOptions = { align: 'center', width: 495 };
 
             if (isPro) {
                 let legalMention = "";
@@ -184,9 +187,9 @@ async function generateInvoicePDF(invoice, fileName, isPaid = true) {
                 } else {
                     legalMention = "Prestation assujettie à la TVA au taux de 20%.";
                 }
-                doc.text(`${legalMention} Les paiements sont sécurisés par Stripe via la plateforme MathBox.`, { align: 'center', width: 450 });
+                doc.text(`${legalMention} Les paiements sont sécurisés par Stripe via la plateforme MathBox.`, 50, postTotalY, legalTextOptions);
             } else {
-                doc.text("Ceci est un reçu confirmant le paiement à un particulier. Les paiements sont sécurisés par Stripe via la plateforme MathBox.", { align: 'center', width: 450 });
+                doc.text("Ceci est un reçu confirmant le paiement à un particulier. Les paiements sont sécurisés par Stripe via la plateforme MathBox.", 50, postTotalY, legalTextOptions);
             }
 
             doc.end();
