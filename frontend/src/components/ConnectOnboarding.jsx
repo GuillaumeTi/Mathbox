@@ -384,15 +384,12 @@ export default function ConnectOnboarding() {
                                     </div>
                                 </div>
 
-                                {invoiceForm.hours && invoiceForm.hourlyRate && (
-                                    <div className="p-3 bg-card border border-border/50 rounded-lg flex justify-between items-center text-sm shadow-sm">
-                                        <span className="text-muted-foreground">Simulation du montant total :</span>
-                                        <span className="font-semibold text-emerald-400">
-                                            {Math.max(0, (parseFloat(invoiceForm.hours) * parseFloat(invoiceForm.hourlyRate)) - (parseFloat(invoiceForm.discount) || 0)).toFixed(2)} €
-                                            {user?.tvaStatus === 'SUBJECT_20' ? ' TTC' : ' HT'}
-                                        </span>
-                                    </div>
-                                )}
+                                <div className="p-3 bg-card border border-border/50 rounded-lg flex justify-between items-center text-sm shadow-sm">
+                                    <span className="text-muted-foreground">Simulation du montant final TTC :</span>
+                                    <span className="font-semibold text-emerald-400">
+                                        {Math.max(0, (parseFloat(invoiceForm.hours) * parseFloat(invoiceForm.hourlyRate)) - (parseFloat(invoiceForm.discount) || 0)).toFixed(2)} €
+                                    </span>
+                                </div>
                                 <div className="flex items-center gap-3">
                                     <Button type="submit" variant="glow" size="sm" disabled={creatingInvoice}>
                                         {creatingInvoice ? 'Envoi...' : 'Envoyer la facture'}
@@ -419,32 +416,33 @@ export default function ConnectOnboarding() {
                                                 <th className="pb-3 font-medium text-muted-foreground">Date</th>
                                                 <th className="pb-3 font-medium text-muted-foreground">Cours</th>
                                                 <th className="pb-3 font-medium text-muted-foreground">Parent</th>
-                                                <th className="pb-3 font-medium text-muted-foreground">Montant HT</th>
-                                                <th className="pb-3 font-medium text-muted-foreground">TVA</th>
-                                                <th className="pb-3 font-medium text-muted-foreground">TTC</th>
+                                                <th className="pb-3 font-medium text-muted-foreground">Montant TTC</th>
                                                 <th className="pb-3 font-medium text-muted-foreground">Statut</th>
                                                 <th className="pb-3 font-medium text-muted-foreground"></th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {invoices.map(inv => {
-                                                const isSubjectTva = user?.tvaStatus === 'SUBJECT_20';
                                                 const amountTTC = inv.amount;
-                                                const amountHT = isSubjectTva ? amountTTC / 1.2 : amountTTC;
-                                                const amountTVA = isSubjectTva ? amountTTC - amountHT : 0;
                                                 return (
                                                     <tr key={inv.id} className="border-b border-border/50">
-                                                        <td className="py-3">{new Date(inv.createdAt).toLocaleDateString('fr-FR')}</td>
+                                                        <td className="py-3">
+                                                            <div>{new Date(inv.createdAt).toLocaleDateString('fr-FR')}</div>
+                                                            <div className="text-xs text-muted-foreground">{inv.invoiceNumber}</div>
+                                                        </td>
+                                                        <td className="py-3 text-muted-foreground text-xs">{inv.type === 'CREDIT_NOTE' ? 'AVOIR' : 'FACTURE'}</td>
                                                         <td className="py-3">{inv.course?.title || '—'}</td>
                                                         <td className="py-3">{inv.parent?.name || '—'}</td>
-                                                        <td className="py-3 font-medium">{amountHT.toFixed(2)} €</td>
-                                                        <td className="py-3 text-muted-foreground">{amountTVA.toFixed(2)} €</td>
-                                                        <td className="py-3 font-bold text-primary">{amountTTC.toFixed(2)} €</td>
+                                                        <td className={`py-3 font-bold ${inv.type === 'CREDIT_NOTE' ? 'text-red-400' : 'text-primary'}`}>
+                                                            {amountTTC.toFixed(2)} €
+                                                        </td>
                                                         <td className="py-3">
-                                                            <Badge variant={inv.status === 'PAID' ? 'success' : 'warning'}
+                                                            <Badge variant={inv.status === 'PAID' ? 'success' : inv.status === 'CANCELLED' ? 'destructive' : 'warning'}
                                                                 className={inv.status === 'PAID'
                                                                     ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                                                                    : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                                                                    : inv.status === 'CANCELLED'
+                                                                        ? 'bg-red-500/10 text-red-400 border-red-500/30'
+                                                                        : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
                                                                 }
                                                             >
                                                                 {inv.status === 'PAID' ? 'Payé' : 'En attente'}
@@ -463,9 +461,9 @@ export default function ConnectOnboarding() {
                                                                     <Button
                                                                         variant="ghost"
                                                                         size="sm"
-                                                                        className="text-red-400 hover:text-red-500 hover:bg-red-500/10 h-8 w-8 p-0"
+                                                                        className="text-orange-400 hover:text-orange-500 hover:bg-orange-500/10 h-8 w-8 p-0"
                                                                         onClick={() => handleDeleteInvoice(inv.id)}
-                                                                        title="Supprimer la facture"
+                                                                        title="Annuler pour émettre un avoir"
                                                                     >
                                                                         <Trash2 className="w-4 h-4" />
                                                                     </Button>

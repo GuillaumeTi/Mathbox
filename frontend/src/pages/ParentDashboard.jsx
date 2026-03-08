@@ -235,29 +235,27 @@ export default function ParentDashboard() {
                                                     <tr className="border-b border-border text-left">
                                                         <th className="pb-3 font-medium text-muted-foreground">Date</th>
                                                         <th className="pb-3 font-medium text-muted-foreground">Description</th>
-                                                        <th className="pb-3 font-medium text-muted-foreground">Montant HT</th>
-                                                        <th className="pb-3 font-medium text-muted-foreground">TVA</th>
-                                                        <th className="pb-3 font-medium text-muted-foreground">TTC</th>
+                                                        <th className="pb-3 font-medium text-muted-foreground">Type</th>
+                                                        <th className="pb-3 font-medium text-muted-foreground">Montant TTC</th>
                                                         <th className="pb-3 font-medium text-muted-foreground">Statut</th>
                                                         <th className="pb-3 font-medium text-muted-foreground"></th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
                                                     {invoices.map(inv => {
-                                                        const isSubjectTva = inv.professor?.tvaStatus === 'SUBJECT_20';
                                                         const amountTTC = inv.amount;
-                                                        const amountHT = isSubjectTva ? amountTTC / 1.2 : amountTTC;
-                                                        const amountTVA = isSubjectTva ? amountTTC - amountHT : 0;
                                                         return (
                                                             <tr key={inv.id} className="border-b border-border/50">
-                                                                <td className="py-3">{new Date(inv.createdAt).toLocaleDateString('fr-FR')}</td>
-                                                                <td className="py-3">{inv.description || 'Abonnement MathBox'}</td>
-                                                                <td className="py-3 font-medium">{amountHT.toFixed(2)} €</td>
-                                                                <td className="py-3 text-muted-foreground">{amountTVA.toFixed(2)} €</td>
-                                                                <td className="py-3 font-bold text-primary">{amountTTC.toFixed(2)} €</td>
                                                                 <td className="py-3">
-                                                                    <Badge variant={inv.status === 'PAID' ? 'success' : 'warning'}>
-                                                                        {inv.status === 'PAID' ? 'Payé' : 'En attente'}
+                                                                    <div>{new Date(inv.createdAt).toLocaleDateString('fr-FR')}</div>
+                                                                    <div className="text-xs text-muted-foreground">{inv.invoiceNumber}</div>
+                                                                </td>
+                                                                <td className="py-3">{inv.description || 'Abonnement MathBox'}</td>
+                                                                <td className="py-3 text-muted-foreground text-xs">{inv.type === 'CREDIT_NOTE' ? 'AVOIR' : 'FACTURE'}</td>
+                                                                <td className={`py-3 font-bold ${inv.type === 'CREDIT_NOTE' ? 'text-red-400' : 'text-primary'}`}>{amountTTC.toFixed(2)} €</td>
+                                                                <td className="py-3">
+                                                                    <Badge variant={inv.status === 'PAID' ? 'success' : inv.status === 'CANCELLED' ? 'destructive' : 'warning'}>
+                                                                        {inv.status === 'PAID' ? 'Payé' : inv.status === 'CANCELLED' ? 'Annulé' : 'En attente'}
                                                                     </Badge>
                                                                 </td>
                                                                 <td className="py-3 text-right">

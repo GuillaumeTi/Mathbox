@@ -62,6 +62,7 @@ enum InvoiceStatus {
 enum InvoiceType {
   INVOICE
   RECEIPT
+  CREDIT_NOTE
 }
 
 enum LegalStatus {
@@ -290,8 +291,9 @@ model Invoice {
 }
 
 model CourseInvoice {
-  id          String        @id @default(uuid())
-  amount      Float
+  id            String        @id @default(uuid())
+  invoiceNumber String?       @unique
+  amount        Float
   hours       Float?
   hourlyRate  Float?
   discount    Float?        @default(0)

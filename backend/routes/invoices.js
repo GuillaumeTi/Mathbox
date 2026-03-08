@@ -46,8 +46,17 @@ router.post('/create', authMiddleware, requireActiveTrial, async (req, res) => {
         const parsedDiscount = discount ? parseFloat(discount) : 0;
         const amount = Math.max(0, (parsedHours * parsedRate) - parsedDiscount);
 
-        const invoice = await prisma.courseInvoice.create({
+        // Calculate Incremental Number
+        const currentCount = await prisma.courseInvoice.count({
+            where: { professorId: req.user.id }
+        });
+        const prefix = req.user.id.substring(0, 6).toUpperCase();
+        const increment = String(currentCount + 1).padStart(4, '0');
+        const invoiceNumber = `FAC-${prefix}-${increment}`;
+
+        let invoice = await prisma.courseInvoice.create({
             data: {
+                invoiceNumber,
                 amount,
                 hours: parsedHours,
                 hourlyRate: parsedRate,
@@ -56,11 +65,26 @@ router.post('/create', authMiddleware, requireActiveTrial, async (req, res) => {
                 courseId,
                 professorId: req.user.id,
                 parentId: course.student.parentId,
+                type: 'INVOICE' // Force type creation immediately
             },
             include: {
                 course: { select: { title: true, code: true } },
-                parent: { select: { name: true, email: true } },
+                parent: { select: { name: true, email: true, address: true, street: true, zipCode: true, city: true } },
+                professor: true,
             },
+        });
+
+        // Immediately generate the UNPAID version of the PDF
+        const fileName = `${invoiceNumber}.pdf`;
+        const documentUrl = await generateInvoicePDF(invoice, fileName, false);
+
+        invoice = await prisma.courseInvoice.update({
+            where: { id: invoice.id },
+            data: { documentUrl },
+            include: {
+                course: { select: { title: true, code: true } },
+                parent: { select: { name: true, email: true } },
+            }
         });
 
         console.log(`[Invoices] Created invoice ${invoice.id} — ${amount}€ for course ${course.title}`);
@@ -205,24 +229,38 @@ router.post('/:id/verify', authMiddleware, async (req, res) => {
         if (paymentIntent.status === 'succeeded') {
             const isPro = invoice.professor.legalStatus === 'PRO';
             const docType = isPro ? 'INVOICE' : 'RECEIPT';
-            const fileName = `${docType.toLowerCase()}-${invoice.id.split('-')[0]}.pdf`;
+            const fileName = `${invoice.invoiceNumber || invoice.id.split('-')[0]}.pdf`;
 
-            let documentUrl = null;
-            try {
-                documentUrl = await generateInvoicePDF(invoice, fileName);
-            } catch (pdfErr) {
-                console.error('[Invoices] PDF Generation failed', pdfErr);
-            }
+            const paidAtTime = new Date();
 
             await prisma.courseInvoice.update({
                 where: { id: invoice.id },
                 data: {
                     status: 'PAID',
-                    paidAt: new Date(),
-                    documentUrl,
+                    paidAt: paidAtTime,
                     type: docType
                 },
             });
+
+            // Re-fetch to ensure the PDF generator has the fresh paidAt attribute
+            const updatedInvoice = await prisma.courseInvoice.findUnique({
+                where: { id: invoice.id },
+                include: { professor: true, parent: true }
+            });
+
+            let documentUrl = null;
+            try {
+                documentUrl = await generateInvoicePDF(updatedInvoice, fileName, true); // true = isPaid
+            } catch (pdfErr) {
+                console.error('[Invoices] PDF Generation failed', pdfErr);
+            }
+
+            if (documentUrl) {
+                await prisma.courseInvoice.update({
+                    where: { id: invoice.id },
+                    data: { documentUrl }
+                });
+            }
 
             // Emit socket event for real-time update
             const io = req.app.get('io');
@@ -265,14 +303,59 @@ router.delete('/:id', authMiddleware, async (req, res) => {
             return res.status(400).json({ error: 'Impossible de supprimer une facture déjà payée' });
         }
 
-        await prisma.courseInvoice.delete({
-            where: { id: invoiceId }
+        if (invoice.status === 'CANCELLED') {
+            return res.status(400).json({ error: 'Cette facture est déjà annulée' });
+        }
+
+        // Calculate Incremental Number for the Credit Note
+        const currentCount = await prisma.courseInvoice.count({
+            where: { professorId: req.user.id }
+        });
+        const prefix = req.user.id.substring(0, 6).toUpperCase();
+        const increment = String(currentCount + 1).padStart(4, '0');
+        const creditNoteNumber = `FAC-${prefix}-${increment}`;
+
+        // Create the Credit Note (Avoir)
+        let creditNote = await prisma.courseInvoice.create({
+            data: {
+                invoiceNumber: creditNoteNumber,
+                amount: -invoice.amount,
+                hours: invoice.hours ? -invoice.hours : null,
+                hourlyRate: invoice.hourlyRate, // rate stays positive, hours are negative
+                discount: invoice.discount ? -invoice.discount : null,
+                description: `Avoir annulant la facture ${invoice.invoiceNumber || invoice.id}`,
+                courseId: invoice.courseId,
+                professorId: invoice.professorId,
+                parentId: invoice.parentId,
+                type: 'CREDIT_NOTE',
+                status: 'PAID' // Credit notes are instantly deemed closed
+            },
+            include: {
+                course: { select: { title: true, code: true } },
+                parent: { select: { name: true, email: true, address: true, street: true, zipCode: true, city: true } },
+                professor: true,
+            },
         });
 
-        res.json({ success: true, message: 'Facture supprimée' });
+        // Generate PDF for the Credit Note
+        const fileName = `${creditNoteNumber}.pdf`;
+        const documentUrl = await generateInvoicePDF(creditNote, fileName, true); // We pass true to signify it's a closed/issued doc
+
+        await prisma.courseInvoice.update({
+            where: { id: creditNote.id },
+            data: { documentUrl }
+        });
+
+        // Mark original as Cancelled
+        await prisma.courseInvoice.update({
+            where: { id: invoiceId },
+            data: { status: 'CANCELLED' }
+        });
+
+        res.json({ success: true, message: 'Facture annulée, avoir généré.' });
     } catch (error) {
-        console.error('[Invoices] Delete error:', error);
-        res.status(500).json({ error: 'Erreur lors de la suppression de la facture' });
+        console.error('[Invoices] Cancel error:', error);
+        res.status(500).json({ error: 'Erreur lors de l\'annulation de la facture' });
     }
 });
 

@@ -16,9 +16,10 @@ function ensureDirectoryExists(dirPath) {
  * 
  * @param {Object} invoice - The CourseInvoice record from Prisma (must include Professor and Parent relations)
  * @param {string} fileName - Generated filename (e.g. `facture-1234.pdf`)
+ * @param {boolean} isPaid - Boolean indicating if the invoice has been successfully paid (renders RED stamp)
  * @returns {Promise<string>} - Returns the relative URL path to the generated PDF (e.g., `/uploads/facture-1234.pdf`)
  */
-async function generateInvoicePDF(invoice, fileName) {
+async function generateInvoicePDF(invoice, fileName, isPaid = true) {
     return new Promise((resolve, reject) => {
         try {
             const uploadDir = process.env.UPLOAD_DIR || 'uploads';
@@ -41,9 +42,17 @@ async function generateInvoicePDF(invoice, fileName) {
             doc.fontSize(20).text('MathBox', { align: 'right' });
             doc.moveDown();
 
-            doc.fontSize(24).text(isPro ? 'FACTURE' : 'REÇU', { align: 'left' });
-            doc.fontSize(10).text(`Document N°: ${invoice.id.split('-')[0].toUpperCase()}`, { align: 'left' });
-            doc.text(`Date: ${new Date(invoice.paidAt || invoice.updatedAt).toLocaleDateString('fr-FR')}`, { align: 'left' });
+            let titleName = 'FACTURE';
+            if (!isPro) titleName = 'REÇU';
+            if (invoice.type === 'CREDIT_NOTE') titleName = 'AVOIR';
+
+            doc.fontSize(24).text(titleName, { align: 'left' });
+
+            const displayDocNumber = invoice.invoiceNumber || invoice.id.split('-')[0].toUpperCase();
+            doc.fontSize(10).text(`Document N°: ${displayDocNumber}`, { align: 'left' });
+
+            const displayDate = invoice.paidAt ? new Date(invoice.paidAt) : new Date(invoice.createdAt || invoice.updatedAt);
+            doc.text(`Date: ${displayDate.toLocaleDateString('fr-FR')}`, { align: 'left' });
             doc.moveDown(2);
 
             // --- PROFESSOR INFO ---
@@ -138,8 +147,29 @@ async function generateInvoicePDF(invoice, fileName) {
                 totalY += 20;
             }
 
-            doc.text(isPro ? 'Total TTC (Payé):' : 'Total Payé:', 250, totalY, { width: 150, align: 'right' });
+            const totalText = isPaid ? (isPro ? 'Total TTC (Payé):' : 'Total Payé:') : (isPro ? 'Total TTC:' : 'Total:');
+            doc.text(totalText, 250, totalY, { width: 150, align: 'right' });
             doc.text(`${amountTTC.toFixed(2)} €`, 420, totalY, { width: 80, align: 'right' });
+
+            // --- RED STAMP "PAYÉ" ---
+            if (isPaid && invoice.type !== 'CREDIT_NOTE') {
+                doc.save();
+                doc.translate(doc.page.width / 2, doc.page.height / 2);
+                doc.rotate(-25);
+
+                doc.font('Helvetica-Bold').fontSize(60);
+                doc.fillOpacity(0.3).fillColor('#EF4444'); // Red color at 30% opacity
+                doc.text('PAYÉ', -doc.widthOfString('PAYÉ') / 2, -40);
+
+                if (invoice.paidAt) {
+                    doc.fontSize(20);
+                    const dateText = `le ${new Date(invoice.paidAt).toLocaleDateString('fr-FR')}`;
+                    doc.text(dateText, -doc.widthOfString(dateText) / 2, 20);
+                }
+
+                doc.restore(); // reset transforms/colors for the legals below
+                doc.fillColor('black'); // Ensure text remains black
+            }
 
             // --- MENTIONS LÉGALES ---
             doc.moveDown(4);

@@ -321,25 +321,41 @@ router.post('/stripe', async (req, res) => {
                     if (invoice && invoice.status !== 'PAID') {
                         const isPro = invoice.professor.legalStatus === 'PRO';
                         const docType = isPro ? 'INVOICE' : 'RECEIPT';
-                        const fileName = `${docType.toLowerCase()}-${invoice.id.split('-')[0]}.pdf`;
+                        const fileName = `${invoice.invoiceNumber || invoice.id.split('-')[0]}.pdf`;
 
-                        let documentUrl = null;
-                        try {
-                            documentUrl = await generateInvoicePDF(invoice, fileName);
-                        } catch (pdfErr) {
-                            console.error('[Stripe Webhook] PDF Generation failed', pdfErr);
-                        }
+                        const paidAtTime = new Date();
 
+                        // Update DB First so PDF generator has access to paidAt in the object
                         await prisma.courseInvoice.update({
                             where: { id: invoice.id },
                             data: {
                                 status: 'PAID',
                                 stripePaymentIntentId: paymentIntent.id,
-                                paidAt: new Date(),
-                                documentUrl,
+                                paidAt: paidAtTime,
                                 type: docType
                             },
                         });
+
+                        // Re-fetch to ensure the PDF generator has the fresh paidAt attribute
+                        const updatedInvoice = await prisma.courseInvoice.findUnique({
+                            where: { id: invoice.id },
+                            include: { professor: true, parent: true }
+                        });
+
+                        let documentUrl = null;
+                        try {
+                            documentUrl = await generateInvoicePDF(updatedInvoice, fileName, true); // true = isPaid
+                        } catch (pdfErr) {
+                            console.error('[Stripe Webhook] PDF Generation failed', pdfErr);
+                        }
+
+                        // Save final doc URL
+                        if (documentUrl) {
+                            await prisma.courseInvoice.update({
+                                where: { id: invoice.id },
+                                data: { documentUrl },
+                            });
+                        }
                     }
 
                     const io = req.app.get('io');
