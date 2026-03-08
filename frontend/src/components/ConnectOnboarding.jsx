@@ -71,7 +71,17 @@ export default function ConnectOnboarding() {
         setCreatingInvoice(true);
         setInvoiceSuccess(false);
         try {
-            await api.post('/invoices/create', invoiceForm);
+            const hrs = parseFloat(invoiceForm.hours) || 0;
+            const rate = parseFloat(invoiceForm.hourlyRate) || 0;
+            const discountPct = parseFloat(invoiceForm.discount) || 0;
+            const absoluteDiscount = (hrs * rate) * (discountPct / 100);
+
+            const payload = {
+                ...invoiceForm,
+                discount: absoluteDiscount.toString()
+            };
+
+            await api.post('/invoices/create', payload);
             setInvoiceForm({ courseId: '', hours: '', hourlyRate: '', discount: '', description: '' });
             setInvoiceSuccess(true);
             setTimeout(() => setInvoiceSuccess(false), 3000);
@@ -363,12 +373,13 @@ export default function ConnectOnboarding() {
                                             />
                                         </div>
                                         <div className="space-y-2">
-                                            <Label className="text-xs">Remise (€)</Label>
+                                            <Label className="text-xs">Remise (%)</Label>
                                             <Input
                                                 type="number"
                                                 min="0"
-                                                step="0.5"
-                                                placeholder="0.00"
+                                                max="100"
+                                                step="1"
+                                                placeholder="0"
                                                 value={invoiceForm.discount}
                                                 onChange={(e) => setInvoiceForm({ ...invoiceForm, discount: e.target.value })}
                                             />
@@ -391,7 +402,8 @@ export default function ConnectOnboarding() {
                                             const hrs = parseFloat(invoiceForm.hours);
                                             const rate = parseFloat(invoiceForm.hourlyRate);
                                             if (!isNaN(hrs) && !isNaN(rate)) {
-                                                return Math.max(0, (hrs * rate) - (parseFloat(invoiceForm.discount) || 0)).toFixed(2);
+                                                const pct = parseFloat(invoiceForm.discount) || 0;
+                                                return Math.max(0, (hrs * rate) * (1 - pct / 100)).toFixed(2);
                                             }
                                             return '0.00';
                                         })()} €

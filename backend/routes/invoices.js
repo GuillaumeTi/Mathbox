@@ -28,7 +28,7 @@ router.post('/create', authMiddleware, requireActiveTrial, async (req, res) => {
             where: { id: courseId, professorId: req.user.id },
             include: {
                 student: {
-                    select: { id: true, parentId: true },
+                    select: { id: true, parentId: true, name: true },
                 },
             },
         });
@@ -61,7 +61,7 @@ router.post('/create', authMiddleware, requireActiveTrial, async (req, res) => {
                 hours: parsedHours,
                 hourlyRate: parsedRate,
                 discount: parsedDiscount,
-                description: description || `Cours: ${course.title || courseId}`,
+                description: description || `Cours de ${course.subject || course.title} pour ${course.student.name || 'élève'}`,
                 courseId,
                 professorId: req.user.id,
                 parentId: course.student.parentId,
