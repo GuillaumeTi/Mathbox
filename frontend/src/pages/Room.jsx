@@ -16,7 +16,7 @@ import {
     Eraser, Type, Square, Circle, Minus, Triangle, Camera, Trash2,
     Lock, Unlock, MessageSquare, Send, X, Grid3X3,
     Monitor, MonitorOff, ImagePlus, Cloud, Folder, ChevronRight, File, Paperclip, Download, BookOpen,
-    Plus, Edit3, AlertTriangle
+    Plus, Edit3, AlertTriangle, ZoomIn, ZoomOut, FileDown, FileUp, CheckSquare
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -149,6 +149,17 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
     const [audioEnabled, setAudioEnabled] = useState(false);
     const isProf = user.role === 'PROFESSOR';
 
+    // Audio recording state
+    const [isRecording, setIsRecording] = useState(false);
+    const mediaRecorderRef = useRef(null);
+    const audioChunksRef = useRef([]);
+    const sessionStartRef = useRef(new Date());
+
+    // Post-room validation modal
+    const [showValidateModal, setShowValidateModal] = useState(false);
+    const [validating, setValidating] = useState(false);
+    const [sessionDuration, setSessionDuration] = useState(0);
+
     // ===== TAB STATE =====
     const initTabs = () => {
         if (initialWhiteboardState && Array.isArray(initialWhiteboardState) && initialWhiteboardState.length > 0) {
@@ -183,9 +194,95 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
 
     // Save on leave
     const handleLeave = useCallback(async () => {
-        if (isProf) await saveWhiteboard();
+        if (isProf) {
+            await saveWhiteboard();
+            // Stop recording if active
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+                mediaRecorderRef.current.stop();
+            }
+            // Calculate session duration in minutes
+            const durationMinutes = Math.round((new Date() - sessionStartRef.current) / 60000);
+            setSessionDuration(durationMinutes);
+            setShowValidateModal(true);
+            return; // Don't navigate yet
+        }
         onLeave();
     }, [isProf, saveWhiteboard, onLeave]);
+
+    const confirmLeave = async (hoursConsumed) => {
+        setValidating(true);
+        try {
+            // Post session data to backend
+            await api.post('/room/validate-session', {
+                courseId,
+                sessionId,
+                durationMinutes: sessionDuration,
+                hoursConsumed: parseFloat(hoursConsumed) || 0,
+                hasAudioRecording: audioChunksRef.current.length > 0
+            });
+        } catch (err) {
+            console.error('[Room] Session validation error:', err);
+        }
+        setValidating(false);
+        onLeave();
+    };
+
+    const skipAndLeave = () => {
+        onLeave();
+    };
+
+    // Tab import handler
+    const importTabs = useCallback((importedTabs) => {
+        if (!isProf) return;
+        const newTabs = importedTabs.map(t => ({ ...t, id: t.id || genId() }));
+        setTabs(newTabs);
+        setActiveTabId(newTabs[0].id);
+        debouncedSave();
+    }, [isProf, debouncedSave]);
+
+    // Audio recording controls
+    const startRecording = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+            audioChunksRef.current = [];
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) audioChunksRef.current.push(e.data);
+            };
+            mediaRecorder.onstop = async () => {
+                stream.getTracks().forEach(t => t.stop());
+                if (audioChunksRef.current.length > 0) {
+                    const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                    // Upload recording
+                    const formData = new FormData();
+                    formData.append('file', blob, 'recording-' + new Date().toISOString() + '.webm');
+                    formData.append('courseId', courseId);
+                    formData.append('sessionId', sessionId);
+                    formData.append('type', 'AUDIO');
+                    formData.append('source', 'room_recording');
+                    try {
+                        await api.upload('/documents/upload', formData);
+                        console.log('[Room] Audio recording uploaded');
+                    } catch (err) {
+                        console.error('[Room] Audio upload failed:', err);
+                    }
+                }
+            };
+            mediaRecorderRef.current = mediaRecorder;
+            mediaRecorder.start(1000); // Chunk every 1s
+            setIsRecording(true);
+        } catch (err) {
+            console.error('[Room] Recording failed:', err);
+            alert('Impossible d\'accéder au micro pour l\'enregistrement');
+        }
+    };
+
+    const stopRecording = () => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            mediaRecorderRef.current.stop();
+            setIsRecording(false);
+        }
+    };
 
     // ===== TAB ACTIONS (Prof only) =====
     const addTab = useCallback(() => {
@@ -430,8 +527,13 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
                 {showBoard && (
                     <>
                         <div className="flex-1 flex flex-col relative">
-                            {/* Tab Bar */}
-                            <TabBar tabs={tabs} activeTabId={activeTabId} isProf={isProf} onSwitch={switchTab} onAdd={addTab} onClose={closeTab} onRename={renameTab} />
+                            {/* Tab Bar + Export/Import */}
+                            <div className="flex items-stretch">
+                                <TabBar tabs={tabs} activeTabId={activeTabId} isProf={isProf} onSwitch={switchTab} onAdd={addTab} onClose={closeTab} onRename={renameTab} />
+                                <div className="bg-gray-900 border-b border-gray-700 flex items-center px-1 gap-1 shrink-0">
+                                    <TabExportImportButtons tabs={tabs} onImport={importTabs} isProf={isProf} whiteboardRef={whiteboardRef} activeTabId={activeTabId} />
+                                </div>
+                            </div>
                             <div className="flex-1 relative">
                                 {viewMode === 'SCREEN_SHARE' && activeScreenTrack && <div className="absolute inset-0 z-0"><VideoTrack trackRef={activeScreenTrack} className="w-full h-full object-contain bg-black" /></div>}
                                 <div className={`absolute inset-0 ${viewMode === 'SCREEN_SHARE' ? 'z-10' : 'z-0'}`}>
@@ -459,8 +561,60 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
             <div className="h-16 glass-strong border-t flex items-center justify-center gap-3 shrink-0">
                 <Button variant={videoEnabled ? 'secondary' : 'destructive'} size="icon" className="rounded-full w-12 h-12" onClick={toggleVideo}>{videoEnabled ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}</Button>
                 <Button variant={audioEnabled ? 'secondary' : 'destructive'} size="icon" className="rounded-full w-12 h-12" onClick={toggleAudio}>{audioEnabled ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}</Button>
+                {isProf && (
+                    <Button
+                        variant={isRecording ? 'destructive' : 'secondary'}
+                        size="icon"
+                        className={`rounded-full w-12 h-12 ${isRecording ? 'animate-pulse' : ''}`}
+                        onClick={isRecording ? stopRecording : startRecording}
+                        title={isRecording ? 'Arrêter l\'enregistrement' : 'Enregistrer la session'}
+                    >
+                        <div className={`w-4 h-4 rounded-full ${isRecording ? 'bg-white' : 'bg-red-500'}`} />
+                    </Button>
+                )}
                 <Button variant="destructive" size="icon" className="rounded-full w-12 h-12" onClick={handleLeave}><X className="w-5 h-5" /></Button>
             </div>
+
+            {/* Post-Room Validation Modal */}
+            {showValidateModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70">
+                    <div className="bg-card rounded-2xl border border-border p-8 w-[440px] shadow-2xl space-y-6">
+                        <div className="text-center">
+                            <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                                <CheckSquare className="w-8 h-8 text-primary" />
+                            </div>
+                            <h2 className="text-xl font-bold">Valider le cours</h2>
+                            <p className="text-muted-foreground text-sm mt-1">Durée de la session: {sessionDuration} min</p>
+                        </div>
+                        <div className="space-y-3">
+                            <Label>Heures à déduire du stock élève</Label>
+                            <Input
+                                id="hoursConsumed"
+                                type="number"
+                                step="0.5"
+                                min="0"
+                                defaultValue={Math.max(0.5, Math.round(sessionDuration / 60 * 2) / 2)}
+                                placeholder="ex: 1.5"
+                            />
+                            <p className="text-xs text-muted-foreground">Ces heures seront déduites du stock d'heures achetées par le parent.</p>
+                        </div>
+                        <div className="flex gap-3">
+                            <Button variant="ghost" className="flex-1" onClick={skipAndLeave}>Passer</Button>
+                            <Button
+                                variant="glow"
+                                className="flex-1"
+                                disabled={validating}
+                                onClick={() => {
+                                    const hrs = document.getElementById('hoursConsumed')?.value;
+                                    confirmLeave(hrs);
+                                }}
+                            >
+                                {validating ? 'Validation...' : 'Valider et quitter'}
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -524,6 +678,58 @@ function TabBar({ tabs, activeTabId, isProf, onSwitch, onAdd, onClose, onRename 
     );
 }
 
+// ===== TAB BAR EXPORT/IMPORT =====
+function TabExportImportButtons({ tabs, onImport, isProf, whiteboardRef, activeTabId }) {
+    const handleExport = () => {
+        // Snapshot current canvas before exporting
+        let exportTabs = tabs;
+        if (whiteboardRef?.current?.getCanvasSnapshot) {
+            const snapshot = whiteboardRef.current.getCanvasSnapshot();
+            exportTabs = tabs.map(t => t.id === activeTabId ? { ...t, canvasData: snapshot } : t);
+        }
+        const blob = new Blob([JSON.stringify(exportTabs, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'mathbox-boards-' + new Date().toISOString().split('T')[0] + '.json';
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    const handleImport = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            try {
+                const data = JSON.parse(ev.target.result);
+                if (Array.isArray(data) && data.length > 0) {
+                    onImport(data);
+                } else {
+                    alert('Format invalide');
+                }
+            } catch {
+                alert('Fichier JSON invalide');
+            }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+    };
+
+    if (!isProf) return null;
+    return (
+        <>
+            <button onClick={handleExport} className="w-7 h-7 rounded-md bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white flex items-center justify-center transition-colors shrink-0" title="Exporter les tableaux">
+                <FileDown className="w-3.5 h-3.5" />
+            </button>
+            <label className="w-7 h-7 rounded-md bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white flex items-center justify-center transition-colors shrink-0 cursor-pointer" title="Importer des tableaux">
+                <FileUp className="w-3.5 h-3.5" />
+                <input type="file" accept=".json" className="hidden" onChange={handleImport} />
+            </label>
+        </>
+    );
+}
+
 // ===== WHITEBOARD COMPONENT =====
 const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, locked, transparent, isProf, activeTabId, tabData, onBackgroundChange }, ref) {
     const room = useRoomContext();
@@ -537,6 +743,14 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
     const [isDrawing, setIsDrawing] = useState(false);
     const lastPoint = useRef(null);
     const shapeStartRef = useRef(null);
+
+    // Zoom state
+    const [scale, setScale] = useState(1);
+    const [offset, setOffset] = useState({ x: 0, y: 0 });
+    const isPanning = useRef(false);
+    const panStart = useRef({ x: 0, y: 0 });
+    const MIN_ZOOM = 0.3;
+    const MAX_ZOOM = 5;
     const [remoteText, setRemoteText] = useState(null);
     const [textInput, setTextInput] = useState(null);
     const textRef = useRef(null);
@@ -660,7 +874,61 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
         return () => room.off(RoomEvent.DataReceived, handler);
     }, [room, localParticipant, activeTabId]);
 
-    const getPos = (e) => { const rect = canvasRef.current.getBoundingClientRect(); return { x: (e.touches ? e.touches[0].clientX : e.clientX) - rect.left, y: (e.touches ? e.touches[0].clientY : e.clientY) - rect.top }; };
+    const getPos = (e) => {
+        const rect = canvasRef.current.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        // Account for zoom: transform screen coords to canvas coords
+        return {
+            x: (clientX - rect.left - offset.x) / scale,
+            y: (clientY - rect.top - offset.y) / scale
+        };
+    };
+
+    // Zoom via Ctrl+Wheel
+    const handleWheel = useCallback((e) => {
+        if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            const rect = wrapperRef.current.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            const delta = e.deltaY > 0 ? 0.9 : 1.1;
+            const newScale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, scale * delta));
+            // Zoom toward mouse position
+            const scaleRatio = newScale / scale;
+            setOffset(prev => ({
+                x: mouseX - (mouseX - prev.x) * scaleRatio,
+                y: mouseY - (mouseY - prev.y) * scaleRatio
+            }));
+            setScale(newScale);
+        } else {
+            // Pan with scroll
+            setOffset(prev => ({
+                x: prev.x - e.deltaX,
+                y: prev.y - e.deltaY
+            }));
+        }
+    }, [scale]);
+
+    useEffect(() => {
+        const el = wrapperRef.current;
+        if (!el) return;
+        el.addEventListener('wheel', handleWheel, { passive: false });
+        return () => el.removeEventListener('wheel', handleWheel);
+    }, [handleWheel]);
+
+    const zoomIn = () => {
+        const newScale = Math.min(MAX_ZOOM, scale * 1.25);
+        setScale(newScale);
+    };
+    const zoomOut = () => {
+        const newScale = Math.max(MIN_ZOOM, scale * 0.8);
+        setScale(newScale);
+    };
+    const resetZoom = () => {
+        setScale(1);
+        setOffset({ x: 0, y: 0 });
+    };
 
     // Text focus fix
     useEffect(() => { if (textInput && textRef.current) setTimeout(() => textRef.current?.focus(), 10); }, [textInput]);
@@ -765,6 +1033,10 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                 ))}
                 <div className="mt-auto" />
                 <button onClick={() => { if (confirm('Tout effacer ?')) { clearCanvas(); clearPreview(); sendData({ type: 'clear', tabId: activeTabId }); } }} className="w-10 h-10 rounded-lg text-red-500 hover:bg-red-100 flex items-center justify-center"><Trash2 className="w-5 h-5" /></button>
+                <div className="w-8 border-t border-gray-300 dark:border-gray-600 my-1" />
+                <button onClick={zoomIn} className="w-10 h-10 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800 flex items-center justify-center" title="Zoom +"><ZoomIn className="w-5 h-5" /></button>
+                <button onClick={zoomOut} className="w-10 h-10 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800 flex items-center justify-center" title="Zoom -"><ZoomOut className="w-5 h-5" /></button>
+                <button onClick={resetZoom} className="w-8 h-6 rounded text-[10px] text-gray-500 hover:text-white hover:bg-gray-700 flex items-center justify-center" title="Reset zoom">{Math.round(scale * 100)}%</button>
             </div>
 
             <div ref={wrapperRef} className="flex-1 relative overflow-hidden" style={bgStyle} onPointerLeave={() => setCursorPos(null)}>
@@ -772,8 +1044,17 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                     <div className="fixed pointer-events-none rounded-full border-2 border-black bg-white/50 z-50 transform -translate-x-1/2 -translate-y-1/2 shadow-sm shadow-white" style={{ left: wrapperRef.current?.getBoundingClientRect().left + cursorPos.x, top: wrapperRef.current?.getBoundingClientRect().top + cursorPos.y, width: thickness * 5, height: thickness * 5 }} />
                 )}
 
-                <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10" style={{ cursor: tool === 'eraser' ? 'none' : 'crosshair' }} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={() => { setIsDrawing(false); setCursorPos(null); }} />
-                <canvas ref={previewCanvasRef} className="absolute inset-0 w-full h-full z-20 pointer-events-none" />
+                {/* Zoom indicator */}
+                {scale !== 1 && (
+                    <div className="absolute top-2 right-2 z-30 bg-black/60 text-white text-xs px-2 py-1 rounded-md backdrop-blur-sm">
+                        {Math.round(scale * 100)}%
+                    </div>
+                )}
+
+                <div style={{ transform: 'translate(' + offset.x + 'px, ' + offset.y + 'px) scale(' + scale + ')', transformOrigin: '0 0', width: '100%', height: '100%' }}>
+                    <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10" style={{ cursor: tool === 'eraser' ? 'none' : 'crosshair' }} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={() => { setIsDrawing(false); setCursorPos(null); }} />
+                    <canvas ref={previewCanvasRef} className="absolute inset-0 w-full h-full z-20 pointer-events-none" />
+                </div>
 
                 {textInput && (
                     <textarea key={`${textInput.x}-${textInput.y}`} ref={textRef} className="absolute z-50 bg-white/50 outline-none resize-none overflow-hidden" style={{ left: textInput.x, top: textInput.y, color: textInput.color, fontSize: `${textInput.thickness * 6}px`, fontFamily: 'Inter, sans-serif', minWidth: '20px', lineHeight: 1.2, border: '1px dashed #666' }}

@@ -395,4 +395,79 @@ router.post('/whiteboard/:courseId', authMiddleware, async (req, res) => {
     }
 });
 
+// POST /api/room/validate-session - Professor validates session & deducts hours
+router.post('/validate-session', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'PROFESSOR') {
+            return res.status(403).json({ error: 'Only professors can validate sessions' });
+        }
+
+        const { courseId, sessionId, durationMinutes, hoursConsumed, hasAudioRecording } = req.body;
+
+        if (!courseId) return res.status(400).json({ error: 'courseId required' });
+
+        const course = await prisma.course.findFirst({
+            where: { id: courseId, professorId: req.user.id },
+            select: { id: true, studentId: true, title: true, subject: true }
+        });
+
+        if (!course) return res.status(404).json({ error: 'Course not found' });
+
+        // Deduct consumed hours from StudentStock
+        const consumed = parseFloat(hoursConsumed) || 0;
+        if (consumed > 0 && course.studentId) {
+            try {
+                const stock = await prisma.studentStock.findUnique({
+                    where: {
+                        studentId_profId: {
+                            studentId: course.studentId,
+                            profId: req.user.id
+                        }
+                    }
+                });
+
+                if (stock) {
+                    await prisma.studentStock.update({
+                        where: {
+                            studentId_profId: {
+                                studentId: course.studentId,
+                                profId: req.user.id
+                            }
+                        },
+                        data: {
+                            consumedHoursThisMonth: { increment: consumed },
+                            purchasedHours: { decrement: Math.min(consumed, stock.purchasedHours) }
+                        }
+                    });
+                    console.log('[Room] Deducted ' + consumed + 'h from stock for student ' + course.studentId);
+                }
+            } catch (stockErr) {
+                console.error('[Room] Stock deduction error:', stockErr);
+            }
+        }
+
+        // Mock AI synthesis pipeline (placeholder)
+        // In the future, this will:
+        // 1. Take the audio recording transcription (Whisper/Mistral)
+        // 2. Take whiteboard snapshots
+        // 3. Generate a comprehensive course synthesis PDF
+        const synthesisResult = {
+            sessionId,
+            courseTitle: course.title || course.subject || 'Session',
+            durationMinutes: durationMinutes || 0,
+            hoursConsumed: consumed,
+            hasAudio: !!hasAudioRecording,
+            aiSynthesis: null, // Will be populated by Mistral in production
+            status: 'VALIDATED'
+        };
+
+        console.log('[Room] Session validated:', JSON.stringify(synthesisResult));
+
+        res.json({ success: true, synthesis: synthesisResult });
+    } catch (error) {
+        console.error('[Room] Session validation error:', error);
+        res.status(500).json({ error: 'Failed to validate session' });
+    }
+});
+
 module.exports = router;
