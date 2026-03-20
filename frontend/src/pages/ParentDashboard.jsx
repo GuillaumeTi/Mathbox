@@ -58,6 +58,7 @@ export default function ParentDashboard() {
 
     // Invoice payment
     const [payingInvoice, setPayingInvoice] = useState(null);
+    const [stocks, setStocks] = useState([]);
 
     useEffect(() => {
         fetchMe().then(() => { });
@@ -93,6 +94,7 @@ export default function ParentDashboard() {
     useEffect(() => {
         if (tab === 'billing') {
             api.get('/invoices').then(d => setInvoices(d.invoices || [])).catch(() => { });
+            api.get('/invoices/stock').then(d => setStocks(d.stocks || [])).catch(() => { });
         }
     }, [tab]);
 
@@ -221,6 +223,33 @@ export default function ParentDashboard() {
                                 <h1 className="text-2xl font-bold">Facturation</h1>
                                 <p className="text-muted-foreground text-sm mt-1">Gérez vos factures et paiements</p>
                             </div>
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="text-base flex items-center gap-2">
+                                        <Clock className="w-4 h-4" /> Stock d'heures
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    {stocks.length === 0 ? (
+                                        <p className="text-sm text-muted-foreground">Aucun stock d'heures pour le moment</p>
+                                    ) : (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            {stocks.map(s => (
+                                                <div key={s.id} className="p-3 rounded-lg border border-border/50 bg-secondary/30">
+                                                    <div className="font-medium text-sm">{s.student?.name || 'Élève'} — Prof. {s.prof?.name || ''}</div>
+                                                    <div className="flex justify-between text-xs mt-1 text-muted-foreground">
+                                                        <span>Achetées: <strong className="text-emerald-400">{s.purchasedHours}h</strong></span>
+                                                        <span>Consommées: <strong className="text-amber-400">{s.consumedHoursThisMonth}h</strong></span>
+                                                    </div>
+                                                    <div className="mt-1 text-xs">
+                                                        Restantes: <strong className="text-primary">{Math.max(0, s.purchasedHours - s.consumedHoursThisMonth)}h</strong>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
                             <Card>
                                 <CardContent className="pt-6">
                                     {invoices.length === 0 ? (

@@ -93,6 +93,7 @@ export default function ProfAccount() {
         tvaStatus: 'FRANCHISE',
         siret: '',
         companyName: '',
+        billingMandate: false,
     });
 
     const [siretSearching, setSiretSearching] = useState(false);
@@ -125,6 +126,7 @@ export default function ProfAccount() {
                     tvaStatus: refreshedUser.tvaStatus || 'FRANCHISE',
                     siret: refreshedUser.siret || '',
                     companyName: refreshedUser.companyName || '',
+                    billingMandate: refreshedUser.billingMandate || false,
                 });
 
                 // Fetch Stripe info & SetupIntent
@@ -319,6 +321,21 @@ export default function ProfAccount() {
                                             placeholder="123 rue de la Paix, 75000 Paris"
                                             required
                                         />
+                                    </div>
+
+                                    {/* Billing Mandate */}
+                                    <div className="p-4 rounded-xl bg-secondary/30 border border-border/50 space-y-2">
+                                        <label className="flex items-start gap-3 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={form.billingMandate}
+                                                onChange={e => setForm({ ...form, billingMandate: e.target.checked })}
+                                                className="accent-primary mt-1"
+                                            />
+                                            <span className="text-sm text-muted-foreground">
+                                                J'accepte le <strong className="text-foreground">mandat de facturation</strong> et autorise MathBox à émettre des factures en mon nom et pour mon compte conformément aux dispositions légales en vigueur.
+                                            </span>
+                                        </label>
                                     </div>
 
                                     <Button type="submit" variant="glow" disabled={saving}>

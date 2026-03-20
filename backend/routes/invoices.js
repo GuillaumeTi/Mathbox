@@ -65,7 +65,7 @@ router.post('/create', authMiddleware, requireActiveTrial, async (req, res) => {
                 courseId,
                 professorId: req.user.id,
                 parentId: course.student.parentId,
-                type: 'INVOICE' // Force type creation immediately
+                type: 'ACOMPTE' // Advance invoice — hours credited on payment
             },
             include: {
                 course: { select: { title: true, code: true } },
@@ -249,6 +249,11 @@ router.post('/:id/verify', authMiddleware, async (req, res) => {
                 },
             });
 
+            // Credit StudentStock if this was an ACOMPTE with hours
+            if (invoice.type === 'ACOMPTE' && invoice.hours && invoice.hours > 0) {
+                await creditStudentStock(invoice);
+            }
+
             // Re-fetch to ensure the PDF generator has the fresh paidAt attribute
             const updatedInvoice = await prisma.courseInvoice.findUnique({
                 where: { id: invoice.id },
@@ -363,6 +368,174 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     } catch (error) {
         console.error('[Invoices] Cancel error:', error);
         res.status(500).json({ error: 'Erreur lors de l\'annulation de la facture' });
+    }
+});
+
+// ============ STUDENT STOCK HELPER ============
+
+/**
+ * Credits StudentStock.purchasedHours when an ACOMPTE invoice is paid.
+ * Finds or creates the StudentStock record for the student-prof pair.
+ */
+async function creditStudentStock(invoice) {
+    try {
+        // Find the course to get studentId
+        const course = await prisma.course.findUnique({
+            where: { id: invoice.courseId },
+            select: { studentId: true }
+        });
+        if (!course?.studentId) return;
+
+        await prisma.studentStock.upsert({
+            where: {
+                studentId_profId: {
+                    studentId: course.studentId,
+                    profId: invoice.professorId
+                }
+            },
+            update: {
+                purchasedHours: { increment: invoice.hours }
+            },
+            create: {
+                studentId: course.studentId,
+                profId: invoice.professorId,
+                purchasedHours: invoice.hours,
+                consumedHoursThisMonth: 0
+            }
+        });
+        console.log(`[StudentStock] Credited ${invoice.hours}h for student ${course.studentId} with prof ${invoice.professorId}`);
+    } catch (err) {
+        console.error('[StudentStock] Credit error:', err);
+    }
+}
+
+// ============ STOCK QUERY ============
+
+// GET /api/invoices/stock — Get hour stock for prof's students (or parent's children)
+router.get('/stock', authMiddleware, async (req, res) => {
+    try {
+        let where = {};
+        if (req.user.role === 'PROFESSOR') {
+            where = { profId: req.user.id };
+        } else if (req.user.role === 'PARENT') {
+            // Find all children of this parent
+            const children = await prisma.user.findMany({
+                where: { parentId: req.user.id },
+                select: { id: true }
+            });
+            where = { studentId: { in: children.map(c => c.id) } };
+        } else {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        const stocks = await prisma.studentStock.findMany({
+            where,
+            include: {
+                student: { select: { name: true, id: true } },
+                prof: { select: { name: true, id: true } }
+            }
+        });
+
+        res.json({ stocks });
+    } catch (error) {
+        console.error('[Stock] Error:', error);
+        res.status(500).json({ error: 'Failed to fetch stock' });
+    }
+});
+
+// ============ PRORATED REFUND ============
+
+// POST /api/invoices/:id/refund — Professor refunds unconsumed hours
+router.post('/:id/refund', authMiddleware, async (req, res) => {
+    try {
+        const stripe = getStripe();
+        if (!stripe) return res.status(400).json({ error: 'Stripe not configured' });
+
+        if (req.user.role !== 'PROFESSOR') {
+            return res.status(403).json({ error: 'Only professors can issue refunds' });
+        }
+
+        const invoice = await prisma.courseInvoice.findUnique({
+            where: { id: req.params.id },
+            include: {
+                course: { select: { studentId: true } },
+                professor: { select: { commissionRate: true } }
+            }
+        });
+
+        if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+        if (invoice.professorId !== req.user.id) return res.status(403).json({ error: 'Not your invoice' });
+        if (invoice.status !== 'PAID') return res.status(400).json({ error: 'Invoice is not paid' });
+        if (!invoice.stripePaymentIntentId) return res.status(400).json({ error: 'No Stripe payment to refund' });
+
+        // Calculate max refundable based on unconsumed hours
+        const studentId = invoice.course?.studentId;
+        if (!studentId) return res.status(400).json({ error: 'No student linked to this course' });
+
+        const stock = await prisma.studentStock.findUnique({
+            where: { studentId_profId: { studentId, profId: req.user.id } }
+        });
+
+        const unconsumedHours = stock ? stock.purchasedHours : 0;
+        const invoiceHours = invoice.hours || 0;
+        const refundableHours = Math.min(unconsumedHours, invoiceHours);
+
+        if (refundableHours <= 0) {
+            return res.status(400).json({ error: 'Aucune heure non consommée à rembourser' });
+        }
+
+        const hourlyRate = invoice.hourlyRate || (invoice.amount / invoiceHours);
+        const refundAmount = Math.round(refundableHours * hourlyRate * 100); // cents
+
+        // Refund via Stripe — do NOT refund the application fee (platform keeps its commission)
+        const refund = await stripe.refunds.create({
+            payment_intent: invoice.stripePaymentIntentId,
+            amount: refundAmount,
+            refund_application_fee: false,
+            reverse_transfer: true
+        });
+
+        // Deduct refunded hours from stock
+        await prisma.studentStock.update({
+            where: { studentId_profId: { studentId, profId: req.user.id } },
+            data: { purchasedHours: { decrement: refundableHours } }
+        });
+
+        // Create Credit Note for the refund
+        const currentCount = await prisma.courseInvoice.count({ where: { professorId: req.user.id } });
+        const prefix = req.user.id.substring(0, 6).toUpperCase();
+        const creditNoteNumber = `FAC-${prefix}-${String(currentCount + 1).padStart(4, '0')}`;
+
+        const creditNote = await prisma.courseInvoice.create({
+            data: {
+                invoiceNumber: creditNoteNumber,
+                amount: -(refundableHours * hourlyRate),
+                hours: -refundableHours,
+                hourlyRate: invoice.hourlyRate,
+                description: `Remboursement de ${refundableHours}h non consommées (facture ${invoice.invoiceNumber})`,
+                courseId: invoice.courseId,
+                professorId: invoice.professorId,
+                parentId: invoice.parentId,
+                type: 'CREDIT_NOTE',
+                status: 'PAID'
+            },
+            include: {
+                course: { select: { title: true, code: true } },
+                parent: { select: { name: true, email: true, address: true, street: true, zipCode: true, city: true } },
+                professor: true,
+            },
+        });
+
+        // Generate PDF for the Credit Note
+        const fileName = `${creditNoteNumber}.pdf`;
+        const documentUrl = await generateInvoicePDF(creditNote, fileName, true);
+        await prisma.courseInvoice.update({ where: { id: creditNote.id }, data: { documentUrl } });
+
+        console.log(`[Refund] Refunded ${refundableHours}h (${refundAmount/100}€) for invoice ${invoice.invoiceNumber}`);
+        res.json({ success: true, refundedHours: refundableHours, refundedAmount: refundAmount / 100, stripeRefundId: refund.id });
+    } catch (error) {
+        console.error('[Refund] Error:', error);
+        res.status(500).json({ error: error.message || 'Failed to process refund' });
     }
 });
 

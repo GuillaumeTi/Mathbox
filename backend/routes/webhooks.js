@@ -336,6 +336,36 @@ router.post('/stripe', async (req, res) => {
                             },
                         });
 
+                        // Credit StudentStock if this was an ACOMPTE with hours
+                        if (invoice.type === 'ACOMPTE' && invoice.hours && invoice.hours > 0) {
+                            try {
+                                const course = await prisma.course.findUnique({
+                                    where: { id: invoice.courseId },
+                                    select: { studentId: true }
+                                });
+                                if (course?.studentId) {
+                                    await prisma.studentStock.upsert({
+                                        where: {
+                                            studentId_profId: {
+                                                studentId: course.studentId,
+                                                profId: invoice.professorId
+                                            }
+                                        },
+                                        update: { purchasedHours: { increment: invoice.hours } },
+                                        create: {
+                                            studentId: course.studentId,
+                                            profId: invoice.professorId,
+                                            purchasedHours: invoice.hours,
+                                            consumedHoursThisMonth: 0
+                                        }
+                                    });
+                                    console.log(`[Stripe Webhook] Credited ${invoice.hours}h to StudentStock`);
+                                }
+                            } catch (stockErr) {
+                                console.error('[Stripe Webhook] StudentStock credit error:', stockErr);
+                            }
+                        }
+
                         // Re-fetch to ensure the PDF generator has the fresh paidAt attribute
                         const updatedInvoice = await prisma.courseInvoice.findUnique({
                             where: { id: invoice.id },

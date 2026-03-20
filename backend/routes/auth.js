@@ -361,6 +361,8 @@ router.get('/me', authMiddleware, async (req, res) => {
                 siret: true,
                 companyName: true,
                 commissionRate: true,
+                tvaStatus: true,
+                billingMandate: true,
                 parentId: true,
                 needsPasswordSetup: true,
                 trialStartDate: true,

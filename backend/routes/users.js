@@ -34,6 +34,10 @@ router.put('/profile', authMiddleware, async (req, res) => {
         if (companyName !== undefined) updateData.companyName = companyName;
         if (tvaStatus !== undefined) updateData.tvaStatus = tvaStatus;
 
+        // Billing mandate (legal checkbox)
+        const { billingMandate } = req.body;
+        if (billingMandate !== undefined) updateData.billingMandate = !!billingMandate;
+
         // Safety lock on commissionRate overrides (e.g. users sending fake rates)
         // We calculate it natively: 10% for individual, 5% for PRO.
         if (legalStatus === 'PRO') {
@@ -58,6 +62,7 @@ router.put('/profile', authMiddleware, async (req, res) => {
                 companyName: true,
                 tvaStatus: true,
                 commissionRate: true,
+                billingMandate: true,
                 role: true,
             }
         });

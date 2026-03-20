@@ -15,7 +15,7 @@ import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import {
     CheckCircle, AlertTriangle, Loader2, Wallet,
-    CreditCard, ArrowDownToLine, Settings, FileText, Plus, Trash2, Download
+    CreditCard, ArrowDownToLine, Settings, FileText, Plus, Trash2, Download, RotateCcw, Clock
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { io } from 'socket.io-client';
@@ -33,6 +33,8 @@ export default function ConnectOnboarding() {
     const [invoiceForm, setInvoiceForm] = useState({ courseId: '', hours: '', hourlyRate: '', discount: '', description: '' });
     const [creatingInvoice, setCreatingInvoice] = useState(false);
     const [invoiceSuccess, setInvoiceSuccess] = useState(false);
+    const [stocks, setStocks] = useState([]);
+    const [refunding, setRefunding] = useState(null);
 
     // Fetch Connect status on mount
     useEffect(() => {
@@ -56,6 +58,13 @@ export default function ConnectOnboarding() {
         try {
             const data = await api.get('/invoices');
             setInvoices(data.invoices || []);
+        } catch (err) { console.error(err); }
+    };
+
+    const fetchStocks = async () => {
+        try {
+            const data = await api.get('/invoices/stock');
+            setStocks(data.stocks || []);
         } catch (err) { console.error(err); }
     };
 
@@ -152,6 +161,7 @@ export default function ConnectOnboarding() {
         if (activeTab === 'factures') {
             fetchInvoices();
             fetchCourses();
+            fetchStocks();
         }
     }, [activeTab]);
 
@@ -419,6 +429,33 @@ export default function ConnectOnboarding() {
                         </CardContent>
                     </Card>
 
+                    {/* Student Stock Display */}
+                    {stocks.length > 0 && (
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="text-base flex items-center gap-2">
+                                    <Clock className="w-4 h-4" /> Stock d'heures par élève
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {stocks.map(s => (
+                                        <div key={s.id} className="p-3 rounded-lg border border-border/50 bg-secondary/30">
+                                            <div className="font-medium text-sm">{s.student?.name || 'Élève'}</div>
+                                            <div className="flex justify-between text-xs mt-1 text-muted-foreground">
+                                                <span>Achetées: <strong className="text-emerald-400">{s.purchasedHours}h</strong></span>
+                                                <span>Consommées: <strong className="text-amber-400">{s.consumedHoursThisMonth}h</strong></span>
+                                            </div>
+                                            <div className="mt-1 text-xs">
+                                                Restantes: <strong className="text-primary">{Math.max(0, s.purchasedHours - s.consumedHoursThisMonth)}h</strong>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
+
                     {/* Invoice List */}
                     <Card>
                         <CardHeader>
@@ -488,6 +525,31 @@ export default function ConnectOnboarding() {
                                                                         title="Annuler pour émettre un avoir"
                                                                     >
                                                                         <Trash2 className="w-4 h-4" />
+                                                                    </Button>
+                                                                )}
+                                                                {inv.status === 'PAID' && inv.type !== 'CREDIT_NOTE' && (
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        className="text-blue-400 hover:text-blue-500 hover:bg-blue-500/10 h-8 px-2 text-xs"
+                                                                        disabled={refunding === inv.id}
+                                                                        onClick={async () => {
+                                                                            if (!confirm('Rembourser les heures non consommées de cette facture ?')) return;
+                                                                            setRefunding(inv.id);
+                                                                            try {
+                                                                                const result = await api.post(`/invoices/${inv.id}/refund`);
+                                                                                alert(`Remboursement effectué: ${result.refundedHours}h (${result.refundedAmount}€)`);
+                                                                                fetchInvoices();
+                                                                                fetchStocks();
+                                                                            } catch (err) {
+                                                                                alert('Erreur: ' + err.message);
+                                                                            }
+                                                                            setRefunding(null);
+                                                                        }}
+                                                                        title="Rembourser les heures non consommées"
+                                                                    >
+                                                                        <RotateCcw className="w-3 h-3 mr-1" />
+                                                                        {refunding === inv.id ? '...' : 'Rembourser'}
                                                                     </Button>
                                                                 )}
                                                             </div>
