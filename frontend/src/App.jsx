@@ -13,6 +13,7 @@ import Billing from './pages/Billing';
 import ProfAccount from './pages/ProfAccount';
 import InvitePage from './pages/InvitePage';
 import MagicLogin from './pages/MagicLogin';
+import AdminDashboard from './pages/AdminDashboard';
 
 function getRoleHome(role) {
     if (role === 'PROFESSOR' || role === 'PROF') return '/dashboard';
@@ -82,6 +83,8 @@ export default function App() {
                 } />
 
                 {/* Catch all */}
+                <Route path="/admin" element={<AdminDashboard />} />
+
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
         </BrowserRouter>

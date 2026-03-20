@@ -363,6 +363,7 @@ router.get('/me', authMiddleware, async (req, res) => {
                 commissionRate: true,
                 tvaStatus: true,
                 billingMandate: true,
+                storageUsed: true,
                 parentId: true,
                 needsPasswordSetup: true,
                 trialStartDate: true,
