@@ -50,6 +50,7 @@ app.use('/api/invite', require('./routes/invite'));
 app.use('/api/invoices', require('./routes/invoices'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/stripe', require('./routes/stripe'));
+app.use('/api/admin', require('./routes/admin'));
 
 // ============ SOCKET.IO ============
 io.on('connection', (socket) => {

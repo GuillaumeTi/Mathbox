@@ -267,6 +267,29 @@ router.post('/stripe', async (req, res) => {
                         },
                     });
                     console.log(`[Stripe Webhook] Subscription ${status} for user ${user.id}`);
+
+                    // Log PlatformTransaction for subscription payment
+                    if (status === 'ACTIVE') {
+                        const latestInvoice = subscription.latest_invoice;
+                        if (latestInvoice) {
+                            try {
+                                const stripe = getStripe();
+                                const inv = await stripe.invoices.retrieve(latestInvoice);
+                                if (inv.amount_paid > 0) {
+                                    await prisma.platformTransaction.create({
+                                        data: {
+                                            profId: user.id,
+                                            type: 'SUBSCRIPTION',
+                                            amount: inv.amount_paid / 100,
+                                            description: `Abonnement MathBox - ${new Date().toLocaleDateString('fr-FR')}`,
+                                        }
+                                    });
+                                }
+                            } catch (txErr) {
+                                console.error('[Stripe Webhook] PlatformTransaction (sub) error:', txErr);
+                            }
+                        }
+                    }
                 }
                 break;
             }
@@ -309,6 +332,20 @@ router.post('/stripe', async (req, res) => {
                         },
                     });
                     console.log(`[Stripe Webhook] ${creditAmount} credits added for user ${metadata.userId}`);
+
+                    // Log PlatformTransaction for AI credit purchase
+                    try {
+                        await prisma.platformTransaction.create({
+                            data: {
+                                profId: metadata.userId,
+                                type: 'AI_CREDITS',
+                                amount: paymentIntent.amount / 100,
+                                description: `Achat de ${creditAmount} crédits IA`,
+                            }
+                        });
+                    } catch (txErr) {
+                        console.error('[Stripe Webhook] PlatformTransaction (credits) error:', txErr);
+                    }
                 }
 
                 // Course invoice payment (marketplace)
@@ -395,6 +432,24 @@ router.post('/stripe', async (req, res) => {
                     }
 
                     console.log(`[Stripe Webhook] CourseInvoice ${metadata.courseInvoiceId} paid`);
+
+                    // Log PlatformTransaction for the commission taken
+                    if (invoice) {
+                        try {
+                            const commissionRate = invoice.professor?.commissionRate || 0.10;
+                            const commissionAmount = invoice.amount * commissionRate;
+                            await prisma.platformTransaction.create({
+                                data: {
+                                    profId: invoice.professorId,
+                                    type: 'COMMISSION',
+                                    amount: commissionAmount,
+                                    description: `Commission sur facture ${invoice.invoiceNumber || 'N/A'} (${(commissionRate * 100).toFixed(0)}%)`,
+                                }
+                            });
+                        } catch (txErr) {
+                            console.error('[Stripe Webhook] PlatformTransaction (commission) error:', txErr);
+                        }
+                    }
                 }
                 break;
             }
