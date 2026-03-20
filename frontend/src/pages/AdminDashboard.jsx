@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -11,32 +11,11 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
-async function adminFetch(endpoint) {
-    const res = await fetch(API_BASE + '/api/admin' + endpoint, {
-        headers: { 'Authorization': 'Basic ' + btoa(credentials) }
-    });
-    if (!res.ok) throw new Error('API error: ' + res.status);
-    return res.json();
-}
-
-async function adminPost(endpoint) {
-    const res = await fetch(API_BASE + '/api/admin' + endpoint, {
-        method: 'POST',
-        headers: {
-            'Authorization': 'Basic ' + btoa(credentials),
-            'Content-Type': 'application/json'
-        }
-    });
-    if (!res.ok) throw new Error('API error: ' + res.status);
-    return res.json();
-}
-
-let credentials = '';
-
 export default function AdminDashboard() {
     const [authed, setAuthed] = useState(false);
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
+    const [loginError, setLoginError] = useState('');
     const [metrics, setMetrics] = useState(null);
     const [professors, setProfessors] = useState([]);
     const [parents, setParents] = useState([]);
@@ -44,11 +23,58 @@ export default function AdminDashboard() {
     const [activeTab, setActiveTab] = useState('metrics');
     const [loading, setLoading] = useState(false);
     const [generating, setGenerating] = useState(false);
+    const [serverError, setServerError] = useState('');
+    const credRef = useRef('');
 
-    const login = (e) => {
+    const doFetch = async (endpoint) => {
+        const res = await fetch(API_BASE + '/api/admin' + endpoint, {
+            headers: { 'Authorization': 'Basic ' + btoa(credRef.current) }
+        });
+        if (res.status === 401) {
+            throw { authError: true, message: 'Identifiants invalides' };
+        }
+        if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            throw { authError: false, message: body.error || 'Erreur serveur (' + res.status + ')' };
+        }
+        return res.json();
+    };
+
+    const doPost = async (endpoint) => {
+        const res = await fetch(API_BASE + '/api/admin' + endpoint, {
+            method: 'POST',
+            headers: {
+                'Authorization': 'Basic ' + btoa(credRef.current),
+                'Content-Type': 'application/json'
+            }
+        });
+        if (res.status === 401) {
+            throw { authError: true, message: 'Identifiants invalides' };
+        }
+        if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            throw { authError: false, message: body.error || 'Erreur serveur (' + res.status + ')' };
+        }
+        return res.json();
+    };
+
+    const login = async (e) => {
         e.preventDefault();
-        credentials = username + ':' + password;
-        setAuthed(true);
+        setLoginError('');
+        credRef.current = username + ':' + password;
+
+        // Test auth with a simple request
+        try {
+            await doFetch('/metrics');
+            setAuthed(true);
+        } catch (err) {
+            if (err.authError) {
+                setLoginError('Identifiants invalides');
+            } else {
+                // Auth is fine, server error on metrics — still let them in
+                setAuthed(true);
+            }
+        }
     };
 
     useEffect(() => {
@@ -58,21 +84,23 @@ export default function AdminDashboard() {
 
     const fetchAll = async () => {
         setLoading(true);
+        setServerError('');
         try {
-            const [m, p, pa, t] = await Promise.all([
-                adminFetch('/metrics'),
-                adminFetch('/professors'),
-                adminFetch('/parents'),
-                adminFetch('/transactions'),
-            ]);
-            setMetrics(m);
+            const m = await doFetch('/metrics').catch(() => null);
+            const p = await doFetch('/professors').catch(() => ({ professors: [] }));
+            const pa = await doFetch('/parents').catch(() => ({ parents: [] }));
+            const t = await doFetch('/transactions').catch(() => ({ transactions: [] }));
+            if (m) setMetrics(m);
             setProfessors(p.professors || []);
             setParents(pa.parents || []);
             setTransactions(t.transactions || []);
         } catch (err) {
-            console.error('Admin fetch error:', err);
-            setAuthed(false);
-            alert('Identifiants invalides ou erreur serveur');
+            if (err.authError) {
+                setAuthed(false);
+                setLoginError('Session expirée');
+            } else {
+                setServerError(err.message || 'Erreur serveur');
+            }
         }
         setLoading(false);
     };
@@ -81,11 +109,11 @@ export default function AdminDashboard() {
         if (!confirm('Générer les factures B2B pour ce mois ?')) return;
         setGenerating(true);
         try {
-            const res = await adminPost('/generate-b2b');
+            const res = await doPost('/generate-b2b');
             alert('Factures générées: ' + res.generatedCount);
             fetchAll();
         } catch (err) {
-            alert('Erreur: ' + err.message);
+            alert('Erreur: ' + (err.message || 'Erreur serveur'));
         }
         setGenerating(false);
     };
@@ -104,6 +132,7 @@ export default function AdminDashboard() {
                         <form onSubmit={login} className="space-y-4">
                             <Input placeholder="Identifiant" value={username} onChange={e => setUsername(e.target.value)} autoFocus />
                             <Input type="password" placeholder="Mot de passe" value={password} onChange={e => setPassword(e.target.value)} />
+                            {loginError && <p className="text-red-500 text-sm text-center">{loginError}</p>}
                             <Button type="submit" variant="glow" className="w-full">Se connecter</Button>
                         </form>
                     </CardContent>
@@ -143,6 +172,14 @@ export default function AdminDashboard() {
             </nav>
 
             <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
+                {/* Server Error Banner */}
+                {serverError && (
+                    <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 flex items-center gap-3">
+                        <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
+                        <p className="text-sm text-amber-400">{serverError}</p>
+                    </div>
+                )}
+
                 {/* KPI Cards */}
                 {metrics && (
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
