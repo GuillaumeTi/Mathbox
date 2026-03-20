@@ -63,6 +63,24 @@ enum InvoiceType {
   INVOICE
   RECEIPT
   CREDIT_NOTE
+  PLATFORM_INVOICE
+  ACOMPTE
+}
+
+enum BillingPreference {
+  PER_CLASS
+  MONTHLY
+}
+
+enum TransactionType {
+  SUBSCRIPTION
+  AI_CREDITS
+  COMMISSION
+}
+
+enum TransactionStatus {
+  PENDING
+  INVOICED
 }
 
 enum LegalStatus {
@@ -106,6 +124,10 @@ model User {
   siret          String?
   companyName    String?
   commissionRate Float        @default(0.10)
+  billingMandate Boolean      @default(false) // "Mandat de facturation" agreement
+
+  // Storage quota (bytes used, max 10GB)
+  storageUsed    Float        @default(0)
 
   // Magic link first-login
   needsPasswordSetup Boolean @default(false)
@@ -140,6 +162,9 @@ model User {
   invoices         Invoice[]
   sentCourseInvoices     CourseInvoice[] @relation("ProfInvoices")
   receivedCourseInvoices CourseInvoice[] @relation("ParentInvoices")
+  studentStocksAsStudent StudentStock[]  @relation("StudentStocks")
+  studentStocksAsProf    StudentStock[]  @relation("ProfStocks")
+  platformTransactions   PlatformTransaction[]
 }
 
 model Course {
@@ -156,7 +181,8 @@ model Course {
   startTime   String?      // "14:00" format for recurring
   startDate   DateTime?    // Exact date for one-time
   duration    Int          @default(60) // minutes
-  status      CourseStatus @default(SCHEDULED)
+  status             CourseStatus      @default(SCHEDULED)
+  billingPreference  BillingPreference @default(PER_CLASS)
 
   // Whiteboard persistent state
   whiteboardState Json?  // [{id, title, canvasData, background}]
@@ -203,6 +229,7 @@ model Document {
   title    String
   type     DocumentType @default(OTHER)
   url      String       // local path or S3 URL
+  s3Key    String?      // Scaleway/S3 object key (future migration)
   size     Int?         // bytes
   mimeType String?
 
@@ -314,6 +341,41 @@ model CourseInvoice {
   stripePaymentIntentId String?
 
   paidAt    DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============ STUDENT STOCK (Hour Tracking) ============
+
+model StudentStock {
+  id                     String @id @default(uuid())
+  purchasedHours         Float  @default(0)
+  consumedHoursThisMonth Float  @default(0)
+
+  studentId String
+  student   User   @relation("StudentStocks", fields: [studentId], references: [id])
+  profId    String
+  prof      User   @relation("ProfStocks", fields: [profId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([studentId, profId])
+}
+
+// ============ PLATFORM TRANSACTIONS (B2B) ============
+
+model PlatformTransaction {
+  id     String            @id @default(uuid())
+  type   TransactionType
+  amount Float
+  status TransactionStatus @default(PENDING)
+
+  profId String
+  prof   User   @relation(fields: [profId], references: [id])
+
+  description String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
