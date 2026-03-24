@@ -19,6 +19,8 @@ export default function AdminDashboard() {
     const [metrics, setMetrics] = useState(null);
     const [professors, setProfessors] = useState([]);
     const [parents, setParents] = useState([]);
+    const [students, setStudents] = useState([]);
+    const [courses, setCourses] = useState([]);
     const [transactions, setTransactions] = useState([]);
     const [activeTab, setActiveTab] = useState('metrics');
     const [loading, setLoading] = useState(false);
@@ -89,10 +91,14 @@ export default function AdminDashboard() {
             const m = await doFetch('/metrics').catch(() => null);
             const p = await doFetch('/professors').catch(() => ({ professors: [] }));
             const pa = await doFetch('/parents').catch(() => ({ parents: [] }));
+            const s = await doFetch('/students').catch(() => ({ students: [] }));
+            const c = await doFetch('/courses').catch(() => ({ courses: [] }));
             const t = await doFetch('/transactions').catch(() => ({ transactions: [] }));
             if (m) setMetrics(m);
             setProfessors(p.professors || []);
             setParents(pa.parents || []);
+            setStudents(s.students || []);
+            setCourses(c.courses || []);
             setTransactions(t.transactions || []);
         } catch (err) {
             if (err.authError) {
@@ -110,7 +116,11 @@ export default function AdminDashboard() {
         setGenerating(true);
         try {
             const res = await doPost('/generate-b2b');
-            alert('Factures générées: ' + res.generatedCount);
+            if (res.generatedCount === 0) {
+                alert('Aucune facture générée. (Il n\'y a pas de transactions en attente pour les professeurs ce mois-ci)');
+            } else {
+                alert('Factures B2B générées avec succès : ' + res.generatedCount);
+            }
             fetchAll();
         } catch (err) {
             alert('Erreur: ' + (err.message || 'Erreur serveur'));
@@ -130,8 +140,8 @@ export default function AdminDashboard() {
                     </CardHeader>
                     <CardContent>
                         <form onSubmit={login} className="space-y-4">
-                            <Input placeholder="Identifiant" value={username} onChange={e => setUsername(e.target.value)} autoFocus />
-                            <Input type="password" placeholder="Mot de passe" value={password} onChange={e => setPassword(e.target.value)} />
+                            <Input type="text" placeholder="Identifiant" value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" autoFocus />
+                            <Input type="password" placeholder="Mot de passe" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
                             {loginError && <p className="text-red-500 text-sm text-center">{loginError}</p>}
                             <Button type="submit" variant="glow" className="w-full">Se connecter</Button>
                         </form>
@@ -145,6 +155,8 @@ export default function AdminDashboard() {
         { id: 'metrics', label: 'Métriques', icon: BarChart3 },
         { id: 'professors', label: 'Professeurs', icon: Users },
         { id: 'parents', label: 'Parents', icon: Users },
+        { id: 'students', label: 'Élèves', icon: Users },
+        { id: 'courses', label: 'Cours', icon: BookOpen },
         { id: 'transactions', label: 'Transactions', icon: Receipt },
     ];
 
@@ -340,6 +352,88 @@ export default function AdminDashboard() {
                                                 <td className="p-3 text-muted-foreground">{new Date(p.createdAt).toLocaleDateString('fr-FR')}</td>
                                             </tr>
                                         ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
+                {activeTab === 'students' && (
+                    <Card>
+                        <CardHeader><CardTitle>Élèves ({students.length})</CardTitle></CardHeader>
+                        <CardContent>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="border-b">
+                                            <th className="text-left p-3 font-medium">Nom</th>
+                                            <th className="text-left p-3 font-medium">Email</th>
+                                            <th className="text-left p-3 font-medium">Parent</th>
+                                            <th className="text-left p-3 font-medium">Inscrit le</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {students.map(s => (
+                                            <tr key={s.id} className="border-b hover:bg-secondary/20">
+                                                <td className="p-3 font-medium">{s.name}</td>
+                                                <td className="p-3 text-muted-foreground">{s.email || '—'}</td>
+                                                <td className="p-3 text-muted-foreground">{s.parent?.name || '—'}</td>
+                                                <td className="p-3 text-muted-foreground">{new Date(s.createdAt).toLocaleDateString('fr-FR')}</td>
+                                            </tr>
+                                        ))}
+                                        {students.length === 0 && (
+                                            <tr><td colSpan={4} className="p-8 text-center text-muted-foreground">Aucun élève</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
+                {activeTab === 'courses' && (
+                    <Card>
+                        <CardHeader><CardTitle>Tous les Cours ({courses.length})</CardTitle></CardHeader>
+                        <CardContent>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm whitespace-nowrap">
+                                    <thead>
+                                        <tr className="border-b">
+                                            <th className="text-left p-3 font-medium">Titre / Matière</th>
+                                            <th className="text-left p-3 font-medium">Statut</th>
+                                            <th className="text-left p-3 font-medium">Professeur</th>
+                                            <th className="text-left p-3 font-medium">Élève</th>
+                                            <th className="text-left p-3 font-medium">Tarif</th>
+                                            <th className="text-left p-3 font-medium">Devoirs</th>
+                                            <th className="text-left p-3 font-medium">Créé le</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {courses.map(c => (
+                                            <tr key={c.id} className="border-b hover:bg-secondary/20">
+                                                <td className="p-3 font-medium">
+                                                    {c.title || '—'}
+                                                    <span className="block text-xs text-muted-foreground">{c.subject || '—'}</span>
+                                                </td>
+                                                <td className="p-3">
+                                                    <Badge variant={
+                                                        c.status === 'LIVE' ? 'destructive' : 
+                                                        c.status === 'SCHEDULED' ? 'default' : 'secondary'
+                                                    }>
+                                                        {c.status === 'LIVE' ? 'En ligne' : c.status}
+                                                    </Badge>
+                                                </td>
+                                                <td className="p-3 text-muted-foreground">{c.professor?.name || '—'}</td>
+                                                <td className="p-3 text-muted-foreground">{c.student?.name || '—'}</td>
+                                                <td className="p-3 font-mono">{c.price > 0 ? `${c.price}€` : 'Gratuit'}</td>
+                                                <td className="p-3"><Badge variant="outline">{c.homeworkCount || 0}</Badge></td>
+                                                <td className="p-3 text-muted-foreground">{new Date(c.createdAt).toLocaleDateString('fr-FR')}</td>
+                                            </tr>
+                                        ))}
+                                        {courses.length === 0 && (
+                                            <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">Aucun cours</td></tr>
+                                        )}
                                     </tbody>
                                 </table>
                             </div>

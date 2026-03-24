@@ -107,6 +107,40 @@ router.get('/parents', async (req, res) => {
     }
 });
 
+// GET /api/admin/students
+router.get('/students', async (req, res) => {
+    try {
+        const students = await prisma.user.findMany({
+            where: { role: 'STUDENT' },
+            select: {
+                id: true, name: true, email: true, createdAt: true,
+                parent: { select: { name: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+        res.json({ students });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch students' });
+    }
+});
+
+// GET /api/admin/courses
+router.get('/courses', async (req, res) => {
+    try {
+        const courses = await prisma.course.findMany({
+            include: {
+                professor: { select: { name: true } },
+                student: { select: { name: true } },
+                homeworks: { select: { id: true } } // just get count
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+        res.json({ courses: courses.map(c => ({ ...c, homeworkCount: c.homeworks.length })) });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch courses' });
+    }
+});
+
 // GET /api/admin/invoices — All invoices
 router.get('/invoices', async (req, res) => {
     try {
