@@ -258,7 +258,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
                     formData.append('file', blob, 'recording-' + new Date().toISOString() + '.webm');
                     formData.append('courseId', courseId);
                     formData.append('sessionId', sessionId);
-                    formData.append('type', 'AUDIO');
+                    formData.append('type', 'RECORDING');
                     formData.append('source', 'room_recording');
                     try {
                         await api.upload('/documents/upload', formData);
