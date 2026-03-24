@@ -72,8 +72,8 @@ ssh $SSH_OPTS ${VPS_USER}@${VPS_HOST} << 'REMOTE_SCRIPT'
   # Generate Prisma client
   npx prisma generate
   
-  # Run database migration
-  npx prisma db push --accept-data-loss 2>/dev/null || npx prisma migrate deploy 2>/dev/null || echo "DB sync done"
+  # Run database migration safely
+  npx prisma migrate deploy || npx prisma db push --skip-generate
   
   # Create uploads dir
   mkdir -p uploads
