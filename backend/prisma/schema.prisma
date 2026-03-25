@@ -76,6 +76,7 @@ enum TransactionType {
   SUBSCRIPTION
   AI_CREDITS
   COMMISSION
+  PLATFORM_INVOICE
 }
 
 enum TransactionStatus {
@@ -351,6 +352,7 @@ model StudentStock {
   id                     String @id @default(uuid())
   purchasedHours         Float  @default(0)
   consumedHoursThisMonth Float  @default(0)
+  billingPreference      BillingPreference @default(PER_CLASS)
 
   studentId String
   student   User   @relation("StudentStocks", fields: [studentId], references: [id])

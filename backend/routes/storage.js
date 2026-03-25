@@ -9,6 +9,26 @@ const { requireActiveTrial } = require('../middleware/trialGuard');
 const prisma = new PrismaClient();
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
 
+// GET /api/storage/quota
+router.get('/quota', authMiddleware, async (req, res) => {
+    try {
+        const user = await prisma.user.findUnique({
+            where: { id: req.user.id },
+            select: { storageUsed: true }
+        });
+        
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        
+        res.json({
+            used: user.storageUsed,
+            limit: 10 * 1024 * 1024 * 1024 // 10GB for Profs
+        });
+    } catch (error) {
+        console.error('[Storage] Quota error:', error);
+        res.status(500).json({ error: 'Failed to fetch storage quota' });
+    }
+});
+
 // PUT /api/storage/rename
 router.put('/rename', authMiddleware, requireActiveTrial, async (req, res) => {
     try {

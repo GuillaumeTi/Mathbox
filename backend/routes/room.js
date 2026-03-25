@@ -435,8 +435,7 @@ router.post('/validate-session', authMiddleware, async (req, res) => {
                             }
                         },
                         data: {
-                            consumedHoursThisMonth: { increment: consumed },
-                            purchasedHours: { decrement: Math.min(consumed, stock.purchasedHours) }
+                            consumedHoursThisMonth: { increment: consumed }
                         }
                     });
                     console.log('[Room] Deducted ' + consumed + 'h from stock for student ' + course.studentId);
