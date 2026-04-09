@@ -12,7 +12,7 @@ import {
     BookOpen, Plus, Video, Clock, Users, Brain, Bell,
     Copy, Trash2, LogOut, ShoppingBag, Cloud, ChevronRight,
     Calendar, BarChart3, ChevronDown, ChevronUp, MoreVertical, Edit, XCircle, RotateCcw, CheckSquare, Square, Archive,
-    AlertTriangle, Zap, Wallet
+    AlertTriangle, Zap, Wallet, LayoutTemplate
 } from 'lucide-react';
 import { io } from 'socket.io-client';
 import { api } from '@/lib/api';
@@ -412,23 +412,6 @@ export default function ProfDashboard() {
                                 <p className="text-xs text-muted-foreground">Crédits IA</p>
                             </div>
                         </Card>
-                        <Card className="px-5 py-3 flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
-                                <Cloud className="w-5 h-5 text-blue-400" />
-                            </div>
-                            <div className="flex-1 min-w-[100px]">
-                                <p className="text-sm font-bold">
-                                    {((user?.storageUsed || 0) / (1024 * 1024 * 1024)).toFixed(2)} <span className="text-xs text-muted-foreground font-normal">/ 10 GB</span>
-                                </p>
-                                <div className="w-full h-1.5 bg-secondary rounded-full mt-1 overflow-hidden">
-                                    <div
-                                        className={`h-full rounded-full transition-all ${(user?.storageUsed || 0) / (10 * 1024 * 1024 * 1024) > 0.9 ? 'bg-red-500' : (user?.storageUsed || 0) / (10 * 1024 * 1024 * 1024) > 0.7 ? 'bg-amber-400' : 'bg-blue-400'}`}
-                                        style={{ width: Math.min(100, ((user?.storageUsed || 0) / (10 * 1024 * 1024 * 1024)) * 100) + '%' }}
-                                    />
-                                </div>
-                                <p className="text-xs text-muted-foreground">Stockage Cloud</p>
-                            </div>
-                        </Card>
                     </div>
                 </div>
 
@@ -598,6 +581,12 @@ export default function ProfDashboard() {
                                                                     </Button>
                                                                 </Link>
                                                             )}
+                                                            <Link to={`/prep/${course.code}`} target="_blank">
+                                                                <Button variant="ghost" size="sm" className="text-violet-400 hover:text-violet-300 hover:bg-violet-500/10" title="Préparer un tableau pour ce cours">
+                                                                    <LayoutTemplate className="w-3.5 h-3.5 mr-1" />
+                                                                    Préparer
+                                                                </Button>
+                                                            </Link>
                                                             <ActionMenu
                                                                 course={course}
                                                                 onEdit={handleEdit}

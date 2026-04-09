@@ -65,6 +65,7 @@ enum InvoiceType {
   CREDIT_NOTE
   PLATFORM_INVOICE
   ACOMPTE
+  SOLDE
 }
 
 enum BillingPreference {
@@ -166,6 +167,8 @@ model User {
   studentStocksAsStudent StudentStock[]  @relation("StudentStocks")
   studentStocksAsProf    StudentStock[]  @relation("ProfStocks")
   platformTransactions   PlatformTransaction[]
+  classSessionsAsStudent ClassSession[]  @relation("StudentSessions")
+  classSessionsAsProf    ClassSession[]  @relation("ProfSessions")
 }
 
 model Course {
@@ -182,6 +185,7 @@ model Course {
   startTime   String?      // "14:00" format for recurring
   startDate   DateTime?    // Exact date for one-time
   duration    Int          @default(60) // minutes
+  hourlyRate  Float?       // €/h set by professor
   status             CourseStatus      @default(SCHEDULED)
   billingPreference  BillingPreference @default(PER_CLASS)
 
@@ -199,6 +203,7 @@ model Course {
   homeworks      Homework[]
   folders        Folder[]
   courseInvoices CourseInvoice[]
+  classSessions  ClassSession[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -331,12 +336,12 @@ model CourseInvoice {
   type        InvoiceType?
 
   // Relations
-  courseId    String
-  course     Course @relation(fields: [courseId], references: [id])
+  courseId    String?
+  course     Course? @relation(fields: [courseId], references: [id])
   professorId String
   professor  User   @relation("ProfInvoices", fields: [professorId], references: [id])
-  parentId   String
-  parent     User   @relation("ParentInvoices", fields: [parentId], references: [id])
+  parentId   String?
+  parent     User?   @relation("ParentInvoices", fields: [parentId], references: [id])
 
   // Stripe
   stripePaymentIntentId String?
@@ -344,6 +349,8 @@ model CourseInvoice {
   paidAt    DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  classSessions ClassSession[]
 }
 
 // ============ STUDENT STOCK (Hour Tracking) ============
@@ -376,7 +383,34 @@ model PlatformTransaction {
   profId String
   prof   User   @relation(fields: [profId], references: [id])
 
-  description String?
+  description     String?
+  stripeInvoiceId String?  @unique  // dedup: one PlatformTransaction per Stripe invoice
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============ CLASS SESSIONS (Individual Lesson Tracking) ============
+
+model ClassSession {
+  id         String   @id @default(uuid())
+  date       DateTime @default(now())
+  duration   Float    // in minutes
+  cost       Float
+  isInvoiced Boolean  @default(false)
+
+  // Relations
+  studentId String
+  student   User   @relation("StudentSessions", fields: [studentId], references: [id])
+  profId    String
+  prof      User   @relation("ProfSessions", fields: [profId], references: [id])
+
+  courseId String?
+  course   Course? @relation(fields: [courseId], references: [id], onDelete: SetNull)
+
+  // Set when isInvoiced = true — links to the invoice that billed this session
+  courseInvoiceId String?
+  courseInvoice   CourseInvoice? @relation(fields: [courseInvoiceId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

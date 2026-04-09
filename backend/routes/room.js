@@ -4,6 +4,9 @@ const { AccessToken, RoomServiceClient } = require('livekit-server-sdk');
 const authMiddleware = require('../middleware/auth');
 const { uploadFile } = require('../services/storageService');
 const { getTrialStatus } = require('../middleware/trialGuard');
+const PDFDocument = require('pdfkit');
+const fs = require('fs');
+const path = require('path');
 
 const prisma = new PrismaClient();
 
@@ -402,7 +405,7 @@ router.post('/validate-session', authMiddleware, async (req, res) => {
             return res.status(403).json({ error: 'Only professors can validate sessions' });
         }
 
-        const { courseId, sessionId, durationMinutes, hoursConsumed, hasAudioRecording } = req.body;
+        const { courseId, sessionId, durationMinutes, hoursConsumed, hasAudioRecording, generateAIReport, hourlyRate } = req.body;
 
         if (!courseId) return res.status(400).json({ error: 'courseId required' });
 
@@ -410,59 +413,221 @@ router.post('/validate-session', authMiddleware, async (req, res) => {
             where: { id: courseId, professorId: req.user.id },
             select: { id: true, studentId: true, title: true, subject: true }
         });
-
         if (!course) return res.status(404).json({ error: 'Course not found' });
 
-        // Deduct consumed hours from StudentStock
-        const consumed = parseFloat(hoursConsumed) || 0;
-        if (consumed > 0 && course.studentId) {
-            try {
-                const stock = await prisma.studentStock.findUnique({
-                    where: {
-                        studentId_profId: {
-                            studentId: course.studentId,
-                            profId: req.user.id
-                        }
+        const durationMins = parseFloat(durationMinutes) || 0;
+        const durationHours = durationMins / 60;
+        const ratePerHour = parseFloat(hourlyRate) || 0;
+        const sessionCost = durationHours * ratePerHour;
+
+        let invoiceGenerated = null;
+        let billingMode = 'NONE';
+
+        if (course.studentId && durationMins > 0) {
+            // Fetch the student's stock and billing preference
+            const stock = await prisma.studentStock.findUnique({
+                where: { studentId_profId: { studentId: course.studentId, profId: req.user.id } }
+            });
+
+            billingMode = stock?.billingPreference || 'PER_CLASS';
+            const purchasedHours = stock?.purchasedHours || 0;
+
+            // Get parent for invoice generation
+            const student = await prisma.user.findUnique({
+                where: { id: course.studentId },
+                select: { id: true, name: true, parentId: true }
+            });
+
+            // Save the ClassSession record
+            const classSession = await prisma.classSession.create({
+                data: {
+                    date: new Date(),
+                    duration: durationMins,
+                    cost: sessionCost,
+                    studentId: course.studentId,
+                    profId: req.user.id,
+                    courseId: course.id,
+                    isInvoiced: billingMode === 'MONTHLY' ? false : true, // MONTHLY: uninvoiced yet
+                }
+            });
+
+            if (billingMode === 'PER_CLASS' && student?.parentId && ratePerHour > 0) {
+                // ============ PER_CLASS logic ============
+                const { generateInvoicePDF } = require('../services/pdfGenerator');
+
+                // Case A: Stock covers full session
+                // Case B: Stock partially covers or doesn't cover at all
+                const coveredHours = Math.min(purchasedHours, durationHours);
+                const uncoveredHours = Math.max(0, durationHours - purchasedHours);
+                const invoiceAmount = uncoveredHours * ratePerHour;
+
+                // Deduct covered hours from stock
+                if (coveredHours > 0 && stock) {
+                    await prisma.studentStock.update({
+                        where: { id: stock.id },
+                        data: { purchasedHours: { decrement: coveredHours } }
+                    });
+                }
+
+                // Find the last ACOMPTE invoice for reference
+                const lastAcompte = await prisma.courseInvoice.findFirst({
+                    where: { courseId: course.id, type: 'ACOMPTE', status: 'PAID' },
+                    orderBy: { createdAt: 'desc' }
+                });
+
+                // Build invoice number
+                const currentCount = await prisma.courseInvoice.count({ where: { professorId: req.user.id } });
+                const prefix = req.user.id.substring(0, 6).toUpperCase();
+                const invoiceNumber = `FAC-${prefix}-${String(currentCount + 1).padStart(4, '0')}`;
+
+                // Build description (clean — acompte deduction is shown as a separate PDF row)
+                let description = `Cours du ${new Date().toLocaleDateString('fr-FR')} — ${durationMins} min`;
+                if (uncoveredHours <= 0) {
+                    description += '\n(Prestation en ligne)';
+                }
+
+                // Fetch professor info for PDF
+                const professor = await prisma.user.findUnique({
+                    where: { id: req.user.id },
+                    select: { id: true, name: true, email: true, legalStatus: true, tvaStatus: true, address: true, phone: true, siret: true, companyName: true, commissionRate: true }
+                });
+                const parentUser = await prisma.user.findUnique({
+                    where: { id: student.parentId },
+                    select: { id: true, name: true, email: true, address: true, street: true, zipCode: true, city: true }
+                });
+
+                const invoiceStatus = invoiceAmount <= 0 ? 'PAID' : 'PENDING';
+
+                let invoice = await prisma.courseInvoice.create({
+                    data: {
+                        invoiceNumber,
+                        amount: Math.max(0, invoiceAmount),
+                        hours: durationHours,
+                        hourlyRate: ratePerHour,
+                        description,
+                        courseId: course.id,
+                        professorId: req.user.id,
+                        parentId: student.parentId,
+                        type: 'SOLDE',
+                        status: invoiceStatus,
+                        paidAt: invoiceStatus === 'PAID' ? new Date() : null,
+                    },
+                    include: {
+                        course: { select: { title: true, code: true } },
+                        parent: { select: { name: true, email: true, address: true, street: true, zipCode: true, city: true } },
+                        professor: true,
                     }
                 });
 
+                // Link classSession to this invoice
+                await prisma.classSession.update({
+                    where: { id: classSession.id },
+                    data: { courseInvoiceId: invoice.id }
+                });
+
+                // Build acompteRow for the PDF deduction line
+                let acompteRow = null;
+                if (coveredHours > 0 && lastAcompte) {
+                    acompteRow = {
+                        label: `Facture d'acompte ${lastAcompte.invoiceNumber || lastAcompte.id.substring(0, 8)} : -${coveredHours.toFixed(2)}h`,
+                        hours: coveredHours,
+                        unitPrice: -ratePerHour,
+                        total: -(coveredHours * ratePerHour),
+                    };
+                }
+
+                // Generate PDF
+                try {
+                    const fileName = `${invoiceNumber}.pdf`;
+                    const documentUrl = await generateInvoicePDF(invoice, fileName, invoiceStatus === 'PAID', acompteRow);
+                    invoice = await prisma.courseInvoice.update({
+                        where: { id: invoice.id },
+                        data: { documentUrl }
+                    });
+                } catch (pdfErr) {
+                    console.error('[Room] PDF generation error:', pdfErr);
+                }
+
+                invoiceGenerated = {
+                    invoiceNumber,
+                    amount: invoiceAmount,
+                    status: invoiceStatus,
+                    coveredHours,
+                    uncoveredHours,
+                };
+
+                console.log(`[Room] PER_CLASS invoice generated: ${invoiceNumber} — ${invoiceAmount.toFixed(2)}€ (${invoiceStatus})`);
+
+            } else if (billingMode === 'MONTHLY') {
+                // ============ MONTHLY: just save the session, no invoice ============
+                // Still deduct consumed hours from stock if stock exists
+                if (stock && purchasedHours > 0) {
+                    const deductHours = Math.min(purchasedHours, durationHours);
+                    await prisma.studentStock.update({
+                        where: { id: stock.id },
+                        data: { purchasedHours: { decrement: deductHours } }
+                    });
+                }
+                console.log(`[Room] MONTHLY mode: ClassSession saved, no invoice generated yet.`);
+            }
+        }
+
+        // Legacy stock deduction (hoursConsumed field, for backwards compat without hourlyRate)
+        const consumed = parseFloat(hoursConsumed) || 0;
+        if (consumed > 0 && course.studentId && ratePerHour === 0) {
+            try {
+                const stock = await prisma.studentStock.findUnique({
+                    where: { studentId_profId: { studentId: course.studentId, profId: req.user.id } }
+                });
                 if (stock) {
                     await prisma.studentStock.update({
-                        where: {
-                            studentId_profId: {
-                                studentId: course.studentId,
-                                profId: req.user.id
-                            }
-                        },
-                        data: {
-                            consumedHoursThisMonth: { increment: consumed }
-                        }
+                        where: { studentId_profId: { studentId: course.studentId, profId: req.user.id } },
+                        data: { consumedHoursThisMonth: { increment: consumed } }
                     });
-                    console.log('[Room] Deducted ' + consumed + 'h from stock for student ' + course.studentId);
                 }
             } catch (stockErr) {
                 console.error('[Room] Stock deduction error:', stockErr);
             }
         }
 
-        // Mock AI synthesis pipeline (placeholder)
-        // In the future, this will:
-        // 1. Take the audio recording transcription (Whisper/Mistral)
-        // 2. Take whiteboard snapshots
-        // 3. Generate a comprehensive course synthesis PDF
-        const synthesisResult = {
-            sessionId,
-            courseTitle: course.title || course.subject || 'Session',
-            durationMinutes: durationMinutes || 0,
-            hoursConsumed: consumed,
-            hasAudio: !!hasAudioRecording,
-            aiSynthesis: null, // Will be populated by Mistral in production
-            status: 'VALIDATED'
-        };
+        // AI Report generation
+        const { generateAIReport: genAI } = req.body;
+        let aiSynthesisUrl = null;
+        if (genAI || generateAIReport) {
+            const doc = new PDFDocument();
+            const fileName = `Synthesis_${(course.title || course.subject || 'Session').replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.pdf`;
+            const archivesDir = path.join(__dirname, '../../Archives');
+            if (!fs.existsSync(archivesDir)) fs.mkdirSync(archivesDir, { recursive: true });
+            const filePath = path.join(archivesDir, fileName);
+            const stream = fs.createWriteStream(filePath);
+            doc.pipe(stream);
+            doc.fontSize(24).text('Rapport IA de Session (BETA)', { align: 'center' });
+            doc.moveDown();
+            doc.fontSize(16).text(`Matière : ${course.subject || 'N/A'}`);
+            doc.text(`Titre : ${course.title || 'N/A'}`);
+            doc.text(`Durée : ${durationMinutes} minutes`);
+            doc.moveDown();
+            doc.fontSize(14).text('Synthèse générée :', { underline: true });
+            doc.moveDown();
+            doc.fontSize(12).text(`Ceci est un rapport généré automatiquement à partir de la session audio et du tableau blanc. (Données factices pour la V2). L'élève a montré une bonne compréhension des concepts abordés. À revoir: Les fractions.`);
+            doc.end();
+            await new Promise((resolve) => stream.on('finish', resolve));
+            aiSynthesisUrl = `/Archives/${fileName}`;
+            console.log('[Room] AI Report generated at:', filePath);
+        }
 
-        console.log('[Room] Session validated:', JSON.stringify(synthesisResult));
-
-        res.json({ success: true, synthesis: synthesisResult });
+        res.json({
+            success: true,
+            billingMode,
+            invoiceGenerated,
+            synthesis: {
+                sessionId,
+                courseTitle: course.title || course.subject || 'Session',
+                durationMinutes: durationMins,
+                aiSynthesisUrl,
+                status: 'VALIDATED'
+            }
+        });
     } catch (error) {
         console.error('[Room] Session validation error:', error);
         res.status(500).json({ error: 'Failed to validate session' });

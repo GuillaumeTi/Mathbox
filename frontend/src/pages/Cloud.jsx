@@ -10,7 +10,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
     BookOpen, Folder, FileText, Upload, ArrowLeft, Download,
-    Trash2, ChevronRight, Plus, Image, File, Pencil, RefreshCw
+    Trash2, ChevronRight, Plus, Image, File, Pencil, RefreshCw,
+    Cloud as CloudIcon
 } from 'lucide-react';
 
 export default function Cloud() {
@@ -215,6 +216,27 @@ export default function Cloud() {
             </nav>
 
             <main className="max-w-5xl mx-auto px-6 py-8 space-y-6">
+                {/* Storage Progress Bar */}
+                <div className="bg-card border rounded-xl p-4 flex items-center gap-4 shadow-sm">
+                    <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0">
+                        <CloudIcon className="w-6 h-6 text-blue-400" />
+                    </div>
+                    <div className="flex-1">
+                        <div className="flex justify-between items-end mb-1.5">
+                            <p className="text-sm font-medium">Stockage Cloud</p>
+                            <p className="text-sm font-bold">
+                                {((user?.storageUsed || 0) / (1024 * 1024 * 1024)).toFixed(2)} <span className="text-xs text-muted-foreground font-normal">/ 10 GB</span>
+                            </p>
+                        </div>
+                        <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
+                            <div
+                                className={`h-full rounded-full transition-all ${(user?.storageUsed || 0) / (10 * 1024 * 1024 * 1024) > 0.9 ? 'bg-red-500' : (user?.storageUsed || 0) / (10 * 1024 * 1024 * 1024) > 0.7 ? 'bg-amber-400' : 'bg-blue-400'}`}
+                                style={{ width: Math.min(100, ((user?.storageUsed || 0) / (10 * 1024 * 1024 * 1024)) * 100) + '%' }}
+                            />
+                        </div>
+                    </div>
+                </div>
+
                 <div className="flex items-center justify-between">
                     <div>
                         <h1 className="text-2xl font-bold flex items-center gap-2">

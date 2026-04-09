@@ -251,7 +251,44 @@ router.post('/stripe', async (req, res) => {
 
     try {
         switch (event.type) {
-            // === Subscription lifecycle ===
+            // === Subscription invoice paid (first payment + every auto-renewal) ===
+            case 'invoice.paid': {
+                const stripeInvoice = event.data.object;
+                // Only handle subscription invoices (not one-off)
+                if (!stripeInvoice.subscription) break;
+                if (stripeInvoice.amount_paid <= 0) break;
+
+                const customerId = stripeInvoice.customer;
+                const user = await prisma.user.findFirst({ where: { stripeCustomerId: customerId } });
+                if (!user) break;
+
+                // Deduplication: skip if we already logged this Stripe invoice
+                const alreadyLogged = await prisma.platformTransaction.findFirst({
+                    where: { stripeInvoiceId: stripeInvoice.id }
+                });
+                if (alreadyLogged) {
+                    console.log(`[Stripe Webhook] invoice.paid already logged for ${stripeInvoice.id}, skipping`);
+                    break;
+                }
+
+                const periodStart = new Date(stripeInvoice.period_start * 1000);
+                const periodEnd = new Date(stripeInvoice.period_end * 1000);
+                const periodLabel = periodStart.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+
+                await prisma.platformTransaction.create({
+                    data: {
+                        profId: user.id,
+                        type: 'SUBSCRIPTION',
+                        amount: stripeInvoice.amount_paid / 100,
+                        description: `Abonnement MathBox ${periodLabel}`,
+                        stripeInvoiceId: stripeInvoice.id,
+                    }
+                });
+                console.log(`[Stripe Webhook] SUBSCRIPTION PlatformTransaction created for user ${user.id} — ${(stripeInvoice.amount_paid / 100).toFixed(2)}€ (${periodLabel})`);
+                break;
+            }
+
+            // === Subscription lifecycle (status sync only) ===
             case 'customer.subscription.updated': {
                 const subscription = event.data.object;
                 const customerId = subscription.customer;
@@ -267,29 +304,6 @@ router.post('/stripe', async (req, res) => {
                         },
                     });
                     console.log(`[Stripe Webhook] Subscription ${status} for user ${user.id}`);
-
-                    // Log PlatformTransaction for subscription payment
-                    if (status === 'ACTIVE') {
-                        const latestInvoice = subscription.latest_invoice;
-                        if (latestInvoice) {
-                            try {
-                                const stripe = getStripe();
-                                const inv = await stripe.invoices.retrieve(latestInvoice);
-                                if (inv.amount_paid > 0) {
-                                    await prisma.platformTransaction.create({
-                                        data: {
-                                            profId: user.id,
-                                            type: 'SUBSCRIPTION',
-                                            amount: inv.amount_paid / 100,
-                                            description: `Abonnement MathBox - ${new Date().toLocaleDateString('fr-FR')}`,
-                                        }
-                                    });
-                                }
-                            } catch (txErr) {
-                                console.error('[Stripe Webhook] PlatformTransaction (sub) error:', txErr);
-                            }
-                        }
-                    }
                 }
                 break;
             }

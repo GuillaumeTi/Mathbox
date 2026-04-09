@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
     BookOpen, ArrowLeft, ShoppingBag, Brain, Check,
-    Sparkles, CreditCard, History, Zap
+    Sparkles, CreditCard, History, Zap, FileText, Receipt, Download, ExternalLink
 } from 'lucide-react';
 import SubscribeModal from '@/components/SubscribeModal';
 import BuyCreditsModal from '@/components/BuyCreditsModal';
@@ -15,7 +15,9 @@ import BuyCreditsModal from '@/components/BuyCreditsModal';
 export default function Shop() {
     const { user, fetchMe } = useAuthStore();
     const [tab, setTab] = useState('credits');
+    const [historySubTab, setHistorySubTab] = useState('receipts');
     const [transactions, setTransactions] = useState([]);
+    const [platformInvoices, setPlatformInvoices] = useState([]);
 
     // Stripe modals
     const [showSubscribe, setShowSubscribe] = useState(false);
@@ -28,6 +30,7 @@ export default function Shop() {
         fetchMe();
         loadTransactions();
         loadStripeStatus();
+        loadPlatformInvoices();
     }, []);
 
     useEffect(() => {
@@ -47,6 +50,13 @@ export default function Shop() {
         try {
             const txData = await api.get('/shop/transactions');
             setTransactions(txData.transactions || []);
+        } catch (err) { }
+    };
+
+    const loadPlatformInvoices = async () => {
+        try {
+            const data = await api.get('/invoices/platform');
+            setPlatformInvoices(data.invoices || []);
         } catch (err) { }
     };
 
@@ -74,6 +84,8 @@ export default function Shop() {
         }
         setReactivating(false);
     };
+
+    const BASE_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || '';
 
     return (
         <div className="min-h-screen bg-background">
@@ -107,7 +119,7 @@ export default function Shop() {
                     </Card>
                 </div>
 
-                {/* Tabs */}
+                {/* Main Tabs */}
                 <div className="flex gap-1 bg-secondary/30 rounded-lg p-1 w-fit">
                     {[
                         { id: 'credits', label: 'Crédits IA', icon: Brain },
@@ -228,45 +240,139 @@ export default function Shop() {
 
                 {/* History Tab */}
                 {tab === 'history' && (
-                    <Card>
-                        <CardContent className="p-0">
-                            {transactions.length === 0 ? (
-                                <div className="p-8 text-center text-muted-foreground">
-                                    <History className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                                    Aucune transaction
-                                </div>
-                            ) : (
-                                <table className="w-full">
-                                    <thead>
-                                        <tr className="border-b bg-secondary/30">
-                                            <th className="text-left p-3 text-sm font-medium text-muted-foreground">Date</th>
-                                            <th className="text-left p-3 text-sm font-medium text-muted-foreground">Description</th>
-                                            <th className="text-left p-3 text-sm font-medium text-muted-foreground">Type</th>
-                                            <th className="text-right p-3 text-sm font-medium text-muted-foreground">Crédits</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {transactions.map(tx => (
-                                            <tr key={tx.id} className="border-b border-border/50">
-                                                <td className="p-3 text-sm">{new Date(tx.createdAt).toLocaleDateString('fr-FR')}</td>
-                                                <td className="p-3 text-sm">{tx.description || '—'}</td>
-                                                <td className="p-3">
-                                                    <Badge variant={tx.type === 'PURCHASE' ? 'success' : tx.type === 'SPEND' ? 'warning' : 'default'} className="text-xs">
-                                                        {tx.type}
-                                                    </Badge>
-                                                </td>
-                                                <td className="p-3 text-right text-sm font-medium">
-                                                    <span className={tx.type === 'SPEND' ? 'text-red-400' : 'text-emerald-400'}>
-                                                        {tx.type === 'SPEND' ? '-' : '+'}{tx.amount}
-                                                    </span>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            )}
-                        </CardContent>
-                    </Card>
+                    <div className="space-y-4">
+                        {/* History Sub-tabs */}
+                        <div className="flex gap-1 bg-secondary/20 rounded-lg p-1 w-fit border border-border/50">
+                            <button
+                                onClick={() => setHistorySubTab('receipts')}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${historySubTab === 'receipts' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                            >
+                                <Receipt className="w-3.5 h-3.5" /> Reçus
+                            </button>
+                            <button
+                                onClick={() => setHistorySubTab('invoices')}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${historySubTab === 'invoices' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                            >
+                                <FileText className="w-3.5 h-3.5" /> Factures plateforme
+                                {platformInvoices.length > 0 && (
+                                    <span className="ml-1 bg-primary/20 text-primary text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                                        {platformInvoices.length}
+                                    </span>
+                                )}
+                            </button>
+                        </div>
+
+                        {/* Reçus sub-tab */}
+                        {historySubTab === 'receipts' && (
+                            <Card>
+                                <CardContent className="p-0">
+                                    {transactions.length === 0 ? (
+                                        <div className="p-8 text-center text-muted-foreground">
+                                            <Receipt className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                                            Aucun reçu
+                                        </div>
+                                    ) : (
+                                        <table className="w-full">
+                                            <thead>
+                                                <tr className="border-b bg-secondary/30">
+                                                    <th className="text-left p-3 text-sm font-medium text-muted-foreground">Date</th>
+                                                    <th className="text-left p-3 text-sm font-medium text-muted-foreground">Description</th>
+                                                    <th className="text-left p-3 text-sm font-medium text-muted-foreground">Type</th>
+                                                    <th className="text-right p-3 text-sm font-medium text-muted-foreground">Crédits</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {transactions.map(tx => (
+                                                    <tr key={tx.id} className="border-b border-border/50">
+                                                        <td className="p-3 text-sm">{new Date(tx.createdAt).toLocaleDateString('fr-FR')}</td>
+                                                        <td className="p-3 text-sm">{tx.description || '—'}</td>
+                                                        <td className="p-3">
+                                                            <Badge variant={tx.type === 'PURCHASE' ? 'success' : tx.type === 'SPEND' ? 'warning' : 'default'} className="text-xs">
+                                                                {tx.type}
+                                                            </Badge>
+                                                        </td>
+                                                        <td className="p-3 text-right text-sm font-medium">
+                                                            <span className={tx.type === 'SPEND' ? 'text-red-400' : 'text-emerald-400'}>
+                                                                {tx.type === 'SPEND' ? '-' : '+'}{tx.amount}
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        )}
+
+                        {/* Factures plateforme sub-tab */}
+                        {historySubTab === 'invoices' && (
+                            <Card>
+                                <CardHeader className="pb-3">
+                                    <CardTitle className="text-base flex items-center gap-2">
+                                        <FileText className="w-4 h-4 text-primary" />
+                                        Factures MathBox → Vous
+                                    </CardTitle>
+                                    <p className="text-xs text-muted-foreground">Factures de commission générées mensuellement par la plateforme</p>
+                                </CardHeader>
+                                <CardContent className="p-0">
+                                    {platformInvoices.length === 0 ? (
+                                        <div className="p-8 text-center text-muted-foreground">
+                                            <FileText className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                                            Aucune facture plateforme
+                                        </div>
+                                    ) : (
+                                        <table className="w-full">
+                                            <thead>
+                                                <tr className="border-b bg-secondary/30">
+                                                    <th className="text-left p-3 text-sm font-medium text-muted-foreground">N° Facture</th>
+                                                    <th className="text-left p-3 text-sm font-medium text-muted-foreground">Date</th>
+                                                    <th className="text-left p-3 text-sm font-medium text-muted-foreground">Statut</th>
+                                                    <th className="text-right p-3 text-sm font-medium text-muted-foreground">Montant</th>
+                                                    <th className="text-center p-3 text-sm font-medium text-muted-foreground">PDF</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {platformInvoices.map(inv => (
+                                                    <tr key={inv.id} className="border-b border-border/50 hover:bg-secondary/10 transition-colors">
+                                                        <td className="p-3 text-sm font-mono font-medium">{inv.invoiceNumber || '—'}</td>
+                                                        <td className="p-3 text-sm text-muted-foreground">
+                                                            {new Date(inv.createdAt).toLocaleDateString('fr-FR')}
+                                                        </td>
+                                                        <td className="p-3">
+                                                            <Badge
+                                                                variant={inv.status === 'PAID' ? 'success' : inv.status === 'PENDING' ? 'warning' : 'default'}
+                                                                className="text-xs"
+                                                            >
+                                                                {inv.status === 'PAID' ? 'Payée' : inv.status === 'PENDING' ? 'En attente' : inv.status}
+                                                            </Badge>
+                                                        </td>
+                                                        <td className="p-3 text-right text-sm font-semibold">
+                                                            {inv.amount?.toFixed(2)} €
+                                                        </td>
+                                                        <td className="p-3 text-center">
+                                                            {inv.documentUrl ? (
+                                                                <a
+                                                                    href={`${BASE_URL}${inv.documentUrl}`}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                                                                >
+                                                                    <Download className="w-3.5 h-3.5" /> Télécharger
+                                                                </a>
+                                                            ) : (
+                                                                <span className="text-xs text-muted-foreground">—</span>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        )}
+                    </div>
                 )}
 
                 <SubscribeModal isOpen={showSubscribe} onClose={() => setShowSubscribe(false)} />
@@ -275,3 +381,4 @@ export default function Shop() {
         </div>
     );
 }
+

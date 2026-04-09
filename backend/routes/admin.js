@@ -42,20 +42,17 @@ router.get('/metrics', async (req, res) => {
 
         let totalCommissions = 0;
         let totalMRR = 0;
-        try {
             const commResult = await prisma.platformTransaction.aggregate({
                 where: { type: 'COMMISSION' },
                 _sum: { amount: true },
             });
             totalCommissions = commResult._sum.amount || 0;
-            const subResult = await prisma.platformTransaction.aggregate({
-                where: { type: 'SUBSCRIPTION' },
+
+            const revenueResult = await prisma.platformTransaction.aggregate({
+                where: { type: { in: ['SUBSCRIPTION', 'AI_CREDITS'] } },
                 _sum: { amount: true },
             });
-            totalMRR = subResult._sum.amount || 0;
-        } catch (e) {
-            console.error('[Admin] PlatformTransaction query failed (model may not exist):', e.message);
-        }
+            totalMRR = revenueResult._sum.amount || 0;
 
         res.json({
             professors: profCount,
@@ -129,13 +126,19 @@ router.get('/courses', async (req, res) => {
     try {
         const courses = await prisma.course.findMany({
             include: {
-                professor: { select: { name: true } },
-                student: { select: { name: true } },
-                homeworks: { select: { id: true } } // just get count
+                professor: { select: { id: true, name: true, email: true } },
+                student: { select: { id: true, name: true, email: true } },
+                homeworks: { select: { id: true, title: true, completed: true } },
+                sessions: { select: { id: true, status: true, startedAt: true } }
             },
             orderBy: { createdAt: 'desc' },
         });
-        res.json({ courses: courses.map(c => ({ ...c, homeworkCount: c.homeworks.length })) });
+        res.json({ courses: courses.map(c => ({ 
+            ...c, 
+            homeworkCount: c.homeworks.length,
+            completedHomeworks: c.homeworks.filter(h => h.completed).length,
+            sessionCount: c.sessions.length
+        })) });
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch courses' });
     }
@@ -155,6 +158,22 @@ router.get('/invoices', async (req, res) => {
         res.json({ invoices });
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch invoices' });
+    }
+});
+
+// GET /api/admin/platform-invoices — All B2B platform invoices (MathBox → professors)
+router.get('/platform-invoices', async (req, res) => {
+    try {
+        const invoices = await prisma.courseInvoice.findMany({
+            where: { type: 'PLATFORM_INVOICE' },
+            orderBy: { createdAt: 'desc' },
+            include: {
+                professor: { select: { name: true, email: true, companyName: true } },
+            },
+        });
+        res.json({ invoices });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch platform invoices' });
     }
 });
 

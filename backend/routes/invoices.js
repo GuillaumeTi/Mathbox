@@ -18,9 +18,9 @@ router.post('/create', authMiddleware, requireActiveTrial, async (req, res) => {
             return res.status(403).json({ error: 'Only professors can create invoices' });
         }
 
-        const { courseId, hours, hourlyRate, discount, description } = req.body;
-        if (!courseId || !hours || !hourlyRate) {
-            return res.status(400).json({ error: 'courseId, hours, and hourlyRate are required' });
+        const { courseId, hours, hourlyRate, discount, description, type } = req.body;
+        if (!courseId || !hours || !hourlyRate || !type) {
+            return res.status(400).json({ error: 'courseId, hours, hourlyRate, and type are required' });
         }
 
         // Validate the course belongs to this professor and has a student
@@ -44,7 +44,78 @@ router.post('/create', authMiddleware, requireActiveTrial, async (req, res) => {
         const parsedHours = parseFloat(hours);
         const parsedRate = parseFloat(hourlyRate);
         const parsedDiscount = discount ? parseFloat(discount) : 0;
-        const amount = Math.max(0, (parsedHours * parsedRate) - parsedDiscount);
+        
+        let amount = 0;
+        let finalDescription = description || `Cours de ${course.subject || course.title} pour ${course.student.name || 'élève'}`;
+        let invoiceStatus = 'PENDING';
+
+        let acompteRow = null; // will be passed to PDF for the deduction line
+
+        if (type === 'SOLDE') {
+            const stock = await prisma.studentStock.findUnique({
+                where: { studentId_profId: { studentId: course.studentId, profId: req.user.id } }
+            });
+            const availableStock = stock ? stock.purchasedHours : 0;
+            const invoicedHours = parsedHours;
+
+            // Fetch the paid ACOMPTE invoice for reference in the PDF
+            const acompteInvoice = await prisma.courseInvoice.findFirst({
+                where: {
+                    professorId: req.user.id,
+                    parentId: course.student.parentId,
+                    type: 'ACOMPTE',
+                    status: 'PAID',
+                },
+                orderBy: { createdAt: 'desc' },
+                select: { invoiceNumber: true, hours: true, amount: true, hourlyRate: true }
+            });
+
+            if (availableStock >= invoicedHours) {
+                // Fully covered by acompte
+                amount = 0;
+                const usedHours = invoicedHours;
+                const usedAmount = usedHours * parsedRate;
+                if (acompteInvoice) {
+                    acompteRow = {
+                        label: `Facture d'acompte ${acompteInvoice.invoiceNumber} : -${usedHours}h`,
+                        hours: usedHours,
+                        unitPrice: -parsedRate,
+                        total: -usedAmount,
+                    };
+                }
+                if (stock) {
+                    await prisma.studentStock.update({
+                        where: { id: stock.id },
+                        data: { purchasedHours: { decrement: invoicedHours } }
+                    });
+                }
+                invoiceStatus = 'PAID';
+            } else {
+                // Partially covered
+                const remainder = invoicedHours - availableStock;
+                amount = Math.max(0, (remainder * parsedRate) - parsedDiscount);
+                if (availableStock > 0) {
+                    const usedAmount = availableStock * parsedRate;
+                    if (acompteInvoice) {
+                        acompteRow = {
+                            label: `Facture d'acompte ${acompteInvoice.invoiceNumber} : -${availableStock}h`,
+                            hours: availableStock,
+                            unitPrice: -parsedRate,
+                            total: -usedAmount,
+                        };
+                    }
+                    await prisma.studentStock.update({
+                        where: { id: stock.id },
+                        data: { purchasedHours: 0 }
+                    });
+                } else {
+                    amount = Math.max(0, (parsedHours * parsedRate) - parsedDiscount);
+                }
+            }
+        } else {
+            // ACOMPTE
+            amount = Math.max(0, (parsedHours * parsedRate) - parsedDiscount);
+        }
 
         // Calculate Incremental Number
         const currentCount = await prisma.courseInvoice.count({
@@ -61,11 +132,12 @@ router.post('/create', authMiddleware, requireActiveTrial, async (req, res) => {
                 hours: parsedHours,
                 hourlyRate: parsedRate,
                 discount: parsedDiscount,
-                description: description || `Cours de ${course.subject || course.title} pour ${course.student.name || 'élève'}`,
+                description: finalDescription,
                 courseId,
                 professorId: req.user.id,
                 parentId: course.student.parentId,
-                type: 'ACOMPTE' // Advance invoice — hours credited on payment
+                type: type, // ACOMPTE or SOLDE
+                status: invoiceStatus
             },
             include: {
                 course: { select: { title: true, code: true } },
@@ -74,9 +146,9 @@ router.post('/create', authMiddleware, requireActiveTrial, async (req, res) => {
             },
         });
 
-        // Immediately generate the UNPAID version of the PDF
+        // Immediately generate the PDF (unpaid for PENDING, paid for auto-paid SOLDE)
         const fileName = `${invoiceNumber}.pdf`;
-        const documentUrl = await generateInvoicePDF(invoice, fileName, false);
+        const documentUrl = await generateInvoicePDF(invoice, fileName, invoiceStatus === 'PAID', acompteRow);
 
         invoice = await prisma.courseInvoice.update({
             where: { id: invoice.id },
@@ -92,6 +164,23 @@ router.post('/create', authMiddleware, requireActiveTrial, async (req, res) => {
     } catch (error) {
         console.error('[Invoices] Create error:', error);
         res.status(500).json({ error: 'Failed to create invoice' });
+    }
+});
+
+// GET /api/invoices/platform — Platform (B2B) invoices for logged-in professor
+router.get('/platform', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'PROFESSOR') {
+            return res.status(403).json({ error: 'Only professors can access platform invoices' });
+        }
+        const invoices = await prisma.courseInvoice.findMany({
+            where: { professorId: req.user.id, type: 'PLATFORM_INVOICE' },
+            orderBy: { createdAt: 'desc' },
+        });
+        res.json({ invoices });
+    } catch (error) {
+        console.error('[Invoices] Platform list error:', error);
+        res.status(500).json({ error: 'Failed to fetch platform invoices' });
     }
 });
 
@@ -240,17 +329,18 @@ router.post('/:id/verify', authMiddleware, async (req, res) => {
 
             const paidAtTime = new Date();
 
-            await prisma.courseInvoice.update({
-                where: { id: invoice.id },
+            // Atomic guard: only update if still PENDING — prevents double-credit on double-poll
+            // NOTE: we do NOT overwrite `type` here — business type (ACOMPTE/SOLDE) must be preserved
+            const updateResult = await prisma.courseInvoice.updateMany({
+                where: { id: invoice.id, status: 'PENDING' },
                 data: {
                     status: 'PAID',
                     paidAt: paidAtTime,
-                    type: docType
                 },
             });
 
-            // Credit StudentStock if this was an ACOMPTE with hours
-            if (invoice.type === 'ACOMPTE' && invoice.hours && invoice.hours > 0) {
+            // Only credit stock if WE just made the transition (count === 1 means we updated it)
+            if (updateResult.count > 0 && invoice.type === 'ACOMPTE' && invoice.hours && invoice.hours > 0) {
                 await creditStudentStock(invoice);
             }
 
@@ -262,7 +352,81 @@ router.post('/:id/verify', authMiddleware, async (req, res) => {
 
             let documentUrl = null;
             try {
-                documentUrl = await generateInvoicePDF(updatedInvoice, fileName, true); // true = isPaid
+                if (updatedInvoice.type === 'SOLDE') {
+                    // Distinguish MONTHLY vs PER_CLASS by looking up the student's billing preference.
+                    // Both invoice types have linked ClassSessions, so session count alone is not reliable.
+                    const linkedSessions = await prisma.classSession.findMany({
+                        where: { courseInvoiceId: updatedInvoice.id },
+                        include: { student: { select: { id: true, name: true } } },
+                        orderBy: { date: 'asc' },
+                    });
+
+                    // Determine billing mode from StudentStock (source of truth)
+                    let billingMode = 'PER_CLASS';
+                    if (linkedSessions.length > 0) {
+                        const stock = await prisma.studentStock.findUnique({
+                            where: {
+                                studentId_profId: {
+                                    studentId: linkedSessions[0].studentId,
+                                    profId: updatedInvoice.professorId,
+                                }
+                            },
+                            select: { billingPreference: true }
+                        });
+                        billingMode = stock?.billingPreference || 'PER_CLASS';
+                    }
+
+                    if (billingMode === 'MONTHLY' && linkedSessions.length > 0) {
+                        // ── MONTHLY SOLDE → generateMonthlyPDF ────────────────────────────
+                        const professor = updatedInvoice.professor;
+                        const parent = updatedInvoice.parent;
+
+                        const acompteInvoices = await prisma.courseInvoice.findMany({
+                            where: {
+                                parentId: updatedInvoice.parentId,
+                                professorId: updatedInvoice.professorId,
+                                status: 'PAID',
+                                type: 'ACOMPTE',
+                            },
+                            select: { id: true, invoiceNumber: true, amount: true, hours: true, createdAt: true }
+                        });
+
+                        documentUrl = await generateMonthlyPDF(
+                            updatedInvoice, professor, parent,
+                            linkedSessions, acompteInvoices, fileName
+                        );
+                    } else {
+                        // ── PER_CLASS SOLDE → generateInvoicePDF with reconstructed acompteRow ─
+                        const hourlyRate = updatedInvoice.hourlyRate || 0;
+                        const totalHours = updatedInvoice.hours || 0;
+                        const billedHours = hourlyRate > 0 ? updatedInvoice.amount / hourlyRate : 0;
+                        const coveredHours = totalHours - billedHours;
+
+                        let acompteRow = null;
+                        if (coveredHours > 0.001) {
+                            const lastAcompte = await prisma.courseInvoice.findFirst({
+                                where: {
+                                    parentId: updatedInvoice.parentId,
+                                    professorId: updatedInvoice.professorId,
+                                    type: 'ACOMPTE',
+                                    status: 'PAID',
+                                },
+                                orderBy: { createdAt: 'desc' },
+                                select: { invoiceNumber: true }
+                            });
+                            acompteRow = {
+                                label: `Facture d'acompte ${lastAcompte?.invoiceNumber || '—'} : -${coveredHours.toFixed(2)}h`,
+                                hours: coveredHours,
+                                unitPrice: -hourlyRate,
+                                total: -(coveredHours * hourlyRate),
+                            };
+                        }
+                        documentUrl = await generateInvoicePDF(updatedInvoice, fileName, true, acompteRow);
+                    }
+                } else {
+                    // ── ACOMPTE or other: no deduction row ──────────────────────────────
+                    documentUrl = await generateInvoicePDF(updatedInvoice, fileName, true, null);
+                }
             } catch (pdfErr) {
                 console.error('[Invoices] PDF Generation failed', pdfErr);
             }
@@ -363,6 +527,27 @@ router.delete('/:id', authMiddleware, async (req, res) => {
             where: { id: invoiceId },
             data: { status: 'CANCELLED' }
         });
+
+        // If this was a paid ACOMPTE, deduct the remaining (unconsumed) hours from stock
+        if (invoice.type === 'ACOMPTE' && invoice.status === 'PAID' && invoice.hours && invoice.hours > 0) {
+            const course = await prisma.course.findUnique({
+                where: { id: invoice.courseId },
+                select: { studentId: true }
+            });
+            if (course?.studentId) {
+                const stock = await prisma.studentStock.findUnique({
+                    where: { studentId_profId: { studentId: course.studentId, profId: req.user.id } }
+                });
+                // Only remove what's still available (can't go below 0)
+                const hoursToRemove = stock ? Math.min(stock.purchasedHours, invoice.hours) : 0;
+                if (hoursToRemove > 0) {
+                    await prisma.studentStock.update({
+                        where: { studentId_profId: { studentId: course.studentId, profId: req.user.id } },
+                        data: { purchasedHours: { decrement: hoursToRemove } }
+                    });
+                }
+            }
+        }
 
         res.json({ success: true, message: 'Facture annulée, avoir généré.' });
     } catch (error) {
@@ -538,5 +723,388 @@ router.post('/:id/refund', authMiddleware, async (req, res) => {
         res.status(500).json({ error: error.message || 'Failed to process refund' });
     }
 });
+
+// ============ BILLING PREFERENCE ============
+
+// PATCH /api/invoices/billing-preference — Professor updates billing frequency for a student
+router.patch('/billing-preference', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'PROFESSOR') {
+            return res.status(403).json({ error: 'Only professors can update billing preference' });
+        }
+
+        const { studentId, preference } = req.body;
+        if (!studentId || !['PER_CLASS', 'MONTHLY'].includes(preference)) {
+            return res.status(400).json({ error: 'studentId and valid preference (PER_CLASS | MONTHLY) required' });
+        }
+
+        // Update/create the StudentStock record with the new preference
+        const stock = await prisma.studentStock.upsert({
+            where: { studentId_profId: { studentId, profId: req.user.id } },
+            update: { billingPreference: preference },
+            create: {
+                studentId,
+                profId: req.user.id,
+                purchasedHours: 0,
+                consumedHoursThisMonth: 0,
+                billingPreference: preference,
+            },
+        });
+
+        console.log(`[BillingPref] Updated preference for student ${studentId} to ${preference}`);
+        res.json({ success: true, stock });
+    } catch (error) {
+        console.error('[BillingPref] Error:', error);
+        res.status(500).json({ error: 'Failed to update billing preference' });
+    }
+});
+
+// ============ CLASS SESSIONS ============
+
+// GET /api/invoices/class-sessions — Get uninvoiced class sessions for a student (for MONTHLY billing)
+router.get('/class-sessions', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'PROFESSOR') {
+            return res.status(403).json({ error: 'Only professors can view class sessions' });
+        }
+
+        const { studentId } = req.query;
+        const where = { profId: req.user.id, isInvoiced: false };
+        if (studentId) where.studentId = studentId;
+
+        const sessions = await prisma.classSession.findMany({
+            where,
+            include: { student: { select: { id: true, name: true } } },
+            orderBy: { date: 'desc' },
+        });
+
+        res.json({ sessions });
+    } catch (error) {
+        console.error('[ClassSessions] Error:', error);
+        res.status(500).json({ error: 'Failed to fetch class sessions' });
+    }
+});
+
+// ============ MONTHLY INVOICE GENERATION ============
+
+// POST /api/invoices/generate-monthly — Generate itemized Facture de Solde for all uninvoiced sessions of a parent
+router.post('/generate-monthly', authMiddleware, requireActiveTrial, async (req, res) => {
+    try {
+        if (req.user.role !== 'PROFESSOR') {
+            return res.status(403).json({ error: 'Only professors can generate invoices' });
+        }
+
+        const { parentId, courseId } = req.body;
+        if (!parentId) return res.status(400).json({ error: 'parentId required' });
+
+        // Find all children of this parent
+        const parent = await prisma.user.findUnique({
+            where: { id: parentId },
+            include: {
+                children: { select: { id: true, name: true } },
+            },
+        });
+        if (!parent) return res.status(404).json({ error: 'Parent not found' });
+
+        const childIds = parent.children.map(c => c.id);
+        if (childIds.length === 0) return res.status(400).json({ error: 'Parent has no children' });
+
+        // Fetch all uninvoiced sessions for this prof's students
+        const sessions = await prisma.classSession.findMany({
+            where: {
+                profId: req.user.id,
+                studentId: { in: childIds },
+                isInvoiced: false,
+                ...(courseId ? { courseId } : {}),
+            },
+            include: { student: { select: { id: true, name: true } } },
+            orderBy: { date: 'asc' },
+        });
+
+        if (sessions.length === 0) {
+            return res.status(400).json({ error: 'Aucune séance non facturée trouvée pour ce parent.' });
+        }
+
+        const totalCost = sessions.reduce((sum, s) => sum + s.cost, 0);
+
+        // Get stock for acompte deduction info
+        const stockDedacted = {};
+        for (const s of sessions) {
+            const key = s.studentId;
+            if (!stockDedacted[key]) {
+                const stock = await prisma.studentStock.findUnique({
+                    where: { studentId_profId: { studentId: s.studentId, profId: req.user.id } },
+                });
+                stockDedacted[key] = stock ? stock.purchasedHours : 0;
+            }
+        }
+
+        // Fetch paid ACOMPTE invoices for this parent to show as deductions.
+        // Strictly type: 'ACOMPTE' — the type is preserved on payment since the recent fix.
+        const acompteInvoices = await prisma.courseInvoice.findMany({
+            where: {
+                parentId,
+                professorId: req.user.id,
+                status: 'PAID',
+                type: 'ACOMPTE',
+            },
+            select: { id: true, invoiceNumber: true, amount: true, hours: true, createdAt: true }
+        });
+
+        const acompteTotal = acompteInvoices.reduce((sum, a) => sum + a.amount, 0);
+        const finalAmount = Math.max(0, totalCost - acompteTotal);
+
+        // Invoice number
+        const currentCount = await prisma.courseInvoice.count({ where: { professorId: req.user.id } });
+        const prefix = req.user.id.substring(0, 6).toUpperCase();
+        const invoiceNumber = `FAC-${prefix}-${String(currentCount + 1).padStart(4, '0')}`;
+
+        // Build description from sessions
+        const monthLabel = new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+        const description = `Facture de Solde - ${monthLabel} - ${sessions.length} séance(s)`;
+
+        // Create the invoice
+        const professor = await prisma.user.findUnique({
+            where: { id: req.user.id },
+            select: { id: true, name: true, email: true, legalStatus: true, tvaStatus: true, address: true, phone: true, siret: true, companyName: true, commissionRate: true }
+        });
+
+        let invoice = await prisma.courseInvoice.create({
+            data: {
+                invoiceNumber,
+                amount: finalAmount,
+                description,
+                professorId: req.user.id,
+                parentId,
+                courseId: courseId || null,
+                type: 'SOLDE',
+                status: finalAmount <= 0 ? 'PAID' : 'PENDING',
+                paidAt: finalAmount <= 0 ? new Date() : null,
+            },
+            include: {
+                course: { select: { title: true, code: true } },
+                parent: { select: { name: true, email: true, address: true, street: true, zipCode: true, city: true } },
+                professor: true,
+            },
+        });
+
+        // Mark all sessions as invoiced and link to this invoice
+        await prisma.classSession.updateMany({
+            where: { id: { in: sessions.map(s => s.id) } },
+            data: { isInvoiced: true, courseInvoiceId: invoice.id },
+        });
+
+        // Generate itemized PDF (now includes acompte deduction lines)
+        const fileName = `${invoiceNumber}.pdf`;
+        const documentUrl = await generateMonthlyPDF(invoice, professor, parent, sessions, acompteInvoices, fileName);
+
+        invoice = await prisma.courseInvoice.update({
+            where: { id: invoice.id },
+            data: { documentUrl },
+            include: {
+                course: { select: { title: true, code: true } },
+                parent: { select: { name: true, email: true } },
+            },
+        });
+
+        console.log(`[Monthly] Generated invoice ${invoiceNumber} for parent ${parentId} — ${finalAmount.toFixed(2)}€ (sessions: ${totalCost.toFixed(2)}€, acompte: -${acompteTotal.toFixed(2)}€)`);
+        res.json({ invoice });
+    } catch (error) {
+        console.error('[Monthly] Error:', error);
+        res.status(500).json({ error: error.message || 'Failed to generate monthly invoice' });
+    }
+});
+
+// ============ MONTHLY PDF GENERATOR ============
+
+const PDFDocument = require('pdfkit');
+const fs = require('fs');
+const path = require('path');
+
+function ensureDir(dirPath) {
+    if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
+}
+
+async function generateMonthlyPDF(invoice, professor, parent, sessions, acompteInvoices, fileName) {
+    return new Promise((resolve, reject) => {
+        try {
+            const uploadDir = process.env.UPLOAD_DIR || 'uploads';
+            const absoluteDir = path.isAbsolute(uploadDir) ? uploadDir : path.join(process.cwd(), uploadDir);
+            ensureDir(absoluteDir);
+
+            const filePath = path.join(absoluteDir, fileName);
+            const relativeUrl = `/uploads/${fileName}`;
+
+            const doc = new PDFDocument({ margin: 50 });
+            const stream = fs.createWriteStream(filePath);
+            doc.pipe(stream);
+
+            const isPro = professor.legalStatus === 'PRO';
+
+            // ── HEADER ─────────────────────────────────────────────────────────
+            doc.fontSize(20).font('Helvetica-Bold').fillColor('black').text('MathBox', { align: 'right' });
+            doc.moveDown(0.5);
+            doc.fontSize(22).text('FACTURE DE SOLDE', { align: 'left' });
+            doc.fontSize(10).font('Helvetica');
+            doc.text(`N° : ${invoice.invoiceNumber}`, { align: 'left' });
+            doc.text(`Date : ${new Date(invoice.createdAt).toLocaleDateString('fr-FR')}`, { align: 'left' });
+            doc.moveDown(1.5);
+
+            // ── PARTIES ────────────────────────────────────────────────────────
+            const partyY = doc.y;
+            // Professor (left)
+            doc.fontSize(9).font('Helvetica-Bold').fillColor('#6B7280').text(isPro ? 'PRESTATAIRE' : 'PROFESSEUR', 50, partyY);
+            doc.font('Helvetica').fontSize(10).fillColor('black');
+            doc.text(professor.name, 50, partyY + 14);
+            if (isPro && professor.companyName) doc.text(professor.companyName, 50);
+            if (professor.address) doc.text(professor.address, 50);
+            if (professor.siret) doc.text(`SIRET : ${professor.siret}`, 50);
+
+            // Parent (right)
+            doc.fontSize(9).font('Helvetica-Bold').fillColor('#6B7280').text('CLIENT', 320, partyY);
+            doc.font('Helvetica').fontSize(10).fillColor('black');
+            doc.text(parent.name, 320, partyY + 14);
+            doc.text(parent.email || '', 320);
+            if (parent.address) doc.text(parent.address, 320);
+            else if (parent.street) doc.text(`${parent.street}, ${parent.zipCode || ''} ${parent.city || ''}`, 320);
+
+            doc.moveDown(3);
+
+            // ── TABLE HEADER ───────────────────────────────────────────────────
+            // Columns: Date(50,80) | Description(135,165) | Qté(305,70) | Prix unit.(380,70) | Total(455,90)
+            const COL = { date: 50, desc: 135, qty: 305, unit: 380, total: 455 };
+            const tableTop = doc.y;
+
+            // Header background
+            doc.rect(50, tableTop, 500, 16).fill('#F3F4F6');
+            doc.font('Helvetica-Bold').fontSize(8).fillColor('#374151');
+            doc.text('DATE',        COL.date,  tableTop + 4, { width: 80 });
+            doc.text('DESCRIPTION', COL.desc,  tableTop + 4, { width: 165 });
+            doc.text('QTÉ',         COL.qty,   tableTop + 4, { width: 70,  align: 'right' });
+            doc.text('PRIX UNIT.',  COL.unit,  tableTop + 4, { width: 70,  align: 'right' });
+            doc.text('TOTAL',       COL.total, tableTop + 4, { width: 90,  align: 'right' });
+
+            let currentY = tableTop + 20;
+            doc.fillColor('black');
+
+            // ── SESSION ROWS ───────────────────────────────────────────────────
+            let subtotal = 0;
+            let rowShade = false;
+
+            for (const s of sessions) {
+                const durationH = s.duration / 60;                        // hours (float)
+                const unitPrice  = durationH > 0 ? s.cost / durationH : 0; // €/h
+                const rowH = 16;
+
+                if (rowShade) doc.rect(50, currentY, 500, rowH).fill('#FAFAFA').stroke('#F3F4F6');
+                rowShade = !rowShade;
+
+                doc.font('Helvetica').fontSize(8).fillColor('#111827');
+                doc.text(new Date(s.date).toLocaleDateString('fr-FR'),
+                    COL.date,  currentY + 4, { width: 80 });
+                doc.text(s.student?.name || '—',
+                    COL.desc,  currentY + 4, { width: 165 });
+                doc.text(`${durationH.toFixed(2)} h`,
+                    COL.qty,   currentY + 4, { width: 70,  align: 'right' });
+                doc.text(`${unitPrice.toFixed(2)} €/h`,
+                    COL.unit,  currentY + 4, { width: 70,  align: 'right' });
+                doc.text(`${s.cost.toFixed(2)} €`,
+                    COL.total, currentY + 4, { width: 90,  align: 'right' });
+
+                subtotal  += s.cost;
+                currentY  += rowH;
+
+                if (currentY > 700) { doc.addPage(); currentY = 50; rowShade = false; }
+            }
+
+            // ── ACOMPTE DEDUCTION ROW (single consolidated line) ───────────────
+            const acomptes = Array.isArray(acompteInvoices) ? acompteInvoices : [];
+            let acompteTotal = 0;
+            let acompteHours = 0;
+
+            for (const a of acomptes) {
+                acompteTotal += a.amount;
+                acompteHours += (a.hours || 0);
+            }
+
+            if (acomptes.length > 0 && acompteTotal > 0) {
+                const unitPrice = acompteHours > 0 ? acompteTotal / acompteHours : 0;
+
+                // Light red background for deduction row
+                doc.rect(50, currentY, 500, 18).fill('#FEF2F2').stroke('#FECACA');
+                doc.font('Helvetica-Bold').fontSize(8).fillColor('#DC2626');
+                doc.text('—',
+                    COL.date,  currentY + 5, { width: 80 });
+                doc.text('Déduction acompte(s) réglé(s)',
+                    COL.desc,  currentY + 5, { width: 165 });
+                doc.text(`-${acompteHours.toFixed(2)} h`,
+                    COL.qty,   currentY + 5, { width: 70,  align: 'right' });
+                doc.text(`${unitPrice.toFixed(2)} €/h`,
+                    COL.unit,  currentY + 5, { width: 70,  align: 'right' });
+                doc.text(`-${acompteTotal.toFixed(2)} €`,
+                    COL.total, currentY + 5, { width: 90,  align: 'right' });
+
+                currentY += 22;
+            }
+
+            // ── TOTALS ─────────────────────────────────────────────────────────
+            doc.moveTo(50, currentY).lineTo(550, currentY).lineWidth(0.5).stroke('#D1D5DB');
+            currentY += 10;
+            doc.fillColor('black');
+
+            // Sub-total des séances
+            doc.font('Helvetica').fontSize(9).fillColor('#6B7280');
+            doc.text('Sous-total des séances :',  320, currentY, { width: 130, align: 'right' });
+            doc.fillColor('#111827');
+            doc.text(`${subtotal.toFixed(2)} €`,  COL.total, currentY, { width: 90, align: 'right' });
+            currentY += 14;
+
+            // Acomptes déduits (summary)
+            if (acompteTotal > 0) {
+                doc.font('Helvetica').fontSize(9).fillColor('#6B7280');
+                doc.text('Total acomptes déduits :',   320, currentY, { width: 130, align: 'right' });
+                doc.font('Helvetica-Bold').fillColor('#DC2626');
+                doc.text(`-${acompteTotal.toFixed(2)} €`, COL.total, currentY, { width: 90, align: 'right' });
+                currentY += 14;
+            }
+
+            // Separator + Grand total
+            doc.moveTo(320, currentY).lineTo(550, currentY).lineWidth(1).stroke('#374151');
+            currentY += 8;
+
+            const totalLabel = invoice.status === 'PAID' ? 'Total TTC (Payé) :' : 'Total TTC :';
+            doc.font('Helvetica-Bold').fontSize(11).fillColor('#111827');
+            doc.text(totalLabel,                   320, currentY, { width: 130, align: 'right' });
+            doc.text(`${invoice.amount.toFixed(2)} €`, COL.total, currentY, { width: 90,  align: 'right' });
+
+            // ── PAYÉ STAMP ─────────────────────────────────────────────────────
+            if (invoice.status === 'PAID') {
+                doc.save();
+                doc.translate(doc.page.width / 2, doc.page.height / 2);
+                doc.rotate(-25);
+                doc.font('Helvetica-Bold').fontSize(60);
+                doc.fillOpacity(0.15).fillColor('#22C55E');
+                doc.text('PAYÉ', -doc.widthOfString('PAYÉ') / 2, -40);
+                doc.restore();
+                doc.fillOpacity(1).fillColor('black');
+            }
+
+            // ── LEGAL ──────────────────────────────────────────────────────────
+            const legalY = currentY + 70;
+            doc.fontSize(7).font('Helvetica-Oblique').fillColor('#9CA3AF');
+            if (isPro) {
+                doc.text('TVA non applicable, article 293 B du CGI. Paiements sécurisés par Stripe via MathBox.', 50, legalY, { align: 'center', width: 500 });
+            } else {
+                doc.text('Reçu confirmant les prestations effectuées. Paiements sécurisés par Stripe via MathBox.', 50, legalY, { align: 'center', width: 500 });
+            }
+
+            doc.end();
+            stream.on('finish', () => resolve(relativeUrl));
+            stream.on('error', reject);
+        } catch (err) {
+            reject(err);
+        }
+    });
+}
 
 module.exports = router;

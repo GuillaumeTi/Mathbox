@@ -115,7 +115,7 @@ router.get('/', authMiddleware, async (req, res) => {
             courses = await prisma.course.findMany({
                 where: { professorId: req.user.id },
                 include: {
-                    student: { select: { id: true, name: true, email: true } },
+                    student: { select: { id: true, name: true, email: true, parentId: true, parent: { select: { id: true, name: true, email: true } } } },
                     _count: { select: { sessions: true, documents: true } },
                 },
                 orderBy: { createdAt: 'desc' },
@@ -179,7 +179,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
             return res.status(404).json({ error: 'Course not found or access denied' });
         }
 
-        const { title, subject, level, description, status, recurrence, dayOfWeek, startTime, duration } = req.body;
+        const { title, subject, level, description, status, recurrence, dayOfWeek, startTime, duration, hourlyRate } = req.body;
         const data = {};
         if (title) data.title = title;
         if (subject) data.subject = subject;
@@ -190,6 +190,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
         if (dayOfWeek != null) data.dayOfWeek = parseInt(dayOfWeek);
         if (startTime) data.startTime = startTime;
         if (duration) data.duration = parseInt(duration);
+        if (hourlyRate !== undefined) data.hourlyRate = hourlyRate !== null ? parseFloat(hourlyRate) : null;
 
         const updated = await prisma.course.update({
             where: { id: req.params.id },
@@ -201,6 +202,27 @@ router.put('/:id', authMiddleware, async (req, res) => {
     } catch (error) {
         console.error('[Courses] Update error:', error);
         res.status(500).json({ error: 'Failed to update course' });
+    }
+});
+
+// PATCH /api/courses/:id/hourly-rate — Quick-update hourly rate only (Prof only)
+router.patch('/:id/hourly-rate', authMiddleware, async (req, res) => {
+    try {
+        const course = await prisma.course.findFirst({
+            where: { id: req.params.id, professorId: req.user.id },
+        });
+        if (!course) return res.status(404).json({ error: 'Course not found or access denied' });
+
+        const { hourlyRate } = req.body;
+        const updated = await prisma.course.update({
+            where: { id: req.params.id },
+            data: { hourlyRate: hourlyRate !== null && hourlyRate !== undefined ? parseFloat(hourlyRate) : null },
+            include: { student: { select: { id: true, name: true } } },
+        });
+        res.json({ course: updated });
+    } catch (error) {
+        console.error('[Courses] HourlyRate update error:', error);
+        res.status(500).json({ error: 'Failed to update hourly rate' });
     }
 });
 

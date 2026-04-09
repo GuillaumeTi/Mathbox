@@ -6,7 +6,7 @@ import Register from './pages/Register';
 import ProfDashboard from './pages/ProfDashboard';
 import StudentDashboard from './pages/StudentDashboard';
 import ParentDashboard from './pages/ParentDashboard';
-import Room from './pages/Room';
+import Room, { PrepBoard } from './pages/Room';
 import Cloud from './pages/Cloud';
 import Shop from './pages/Shop';
 import Billing from './pages/Billing';
@@ -74,6 +74,9 @@ export default function App() {
                 {/* Shared */}
                 <Route path="/room/:courseCode" element={
                     <ProtectedRoute><Room /></ProtectedRoute>
+                } />
+                <Route path="/prep/:courseCode" element={
+                    <ProtectedRoute allowedRoles={['PROFESSOR']}><PrepBoard /></ProtectedRoute>
                 } />
                 <Route path="/cloud" element={
                     <ProtectedRoute><Cloud /></ProtectedRoute>

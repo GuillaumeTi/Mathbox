@@ -191,9 +191,9 @@ router.post('/upload', authMiddleware, requireActiveTrial, upload.single('file')
                 size: req.file.size,
                 mimeType: req.file.mimetype,
                 ownerId,
-                courseId: activeCourseId || null,
-                sessionId: sessionId || null,
-                folderId: finalFolderId || null, // Link to the VFS folder
+                courseId: (activeCourseId && isUuid(activeCourseId)) ? activeCourseId : null,
+                sessionId: (sessionId && isUuid(sessionId)) ? sessionId : null,
+                folderId: (finalFolderId && isUuid(finalFolderId)) ? finalFolderId : null,
             },
         });
 

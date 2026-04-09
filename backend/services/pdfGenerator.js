@@ -19,7 +19,7 @@ function ensureDirectoryExists(dirPath) {
  * @param {boolean} isPaid - Boolean indicating if the invoice has been successfully paid (renders RED stamp)
  * @returns {Promise<string>} - Returns the relative URL path to the generated PDF (e.g., `/uploads/facture-1234.pdf`)
  */
-async function generateInvoicePDF(invoice, fileName, isPaid = true) {
+async function generateInvoicePDF(invoice, fileName, isPaid = true, acompteRow = null) {
     return new Promise((resolve, reject) => {
         try {
             const uploadDir = process.env.UPLOAD_DIR || 'uploads';
@@ -96,62 +96,86 @@ async function generateInvoicePDF(invoice, fileName, isPaid = true) {
             const rateHT = isSubjectTva ? rateTTC / 1.2 : rateTTC;
             const baseHT = hours * rateHT;
             const discountHT = isSubjectTva ? discountTTC / 1.2 : discountTTC;
-            const totalHT = baseHT - discountHT;
+            const acompteHT = acompteRow ? (isSubjectTva ? acompteRow.total / 1.2 : acompteRow.total) : 0;
+            const totalHT = baseHT - discountHT + acompteHT; // acompteHT is negative when deduction
 
             const amountTTC = invoice.amount;
             const tvaAmount = isSubjectTva ? amountTTC - totalHT : 0;
 
             // --- INVOICE DETAILS TABLE ---
             const tableTop = doc.y;
-            doc.font('Helvetica-Bold');
-            doc.text('Description', 50, tableTop);
-            doc.text('Qté (h)', 250, tableTop, { width: 50, align: 'right' });
-            doc.text('Prix Unit. HT', 320, tableTop, { width: 80, align: 'right' });
-            doc.text('Total HT', 420, tableTop, { width: 80, align: 'right' });
+            doc.font('Helvetica-Bold').fontSize(10);
+            doc.text('Description',   50,  tableTop, { width: 200 });
+            doc.text('Qté (h)',       255, tableTop, { width: 60,  align: 'right' });
+            doc.text('Prix Unit. HT', 320, tableTop, { width: 90,  align: 'right' });
+            doc.text('Total HT',      420, tableTop, { width: 80,  align: 'right' });
             doc.moveTo(50, tableTop + 15).lineTo(500, tableTop + 15).stroke();
-            doc.moveDown();
 
-            doc.font('Helvetica');
-            let itemY = doc.y + 10;
-            const desc = invoice.description ? `${invoice.description} (Prestation en ligne)` : `Cours de mathématiques (Prestation en ligne)`;
+            doc.font('Helvetica').fontSize(10);
+            let itemY = tableTop + 25;
 
-            // Primary Row
-            doc.text(desc, 50, itemY, { width: 200 });
-            doc.text(hours.toString(), 250, itemY, { width: 50, align: 'right' });
-            doc.text(`${rateHT.toFixed(2)} €`, 320, itemY, { width: 80, align: 'right' });
-            doc.text(`${baseHT.toFixed(2)} €`, 420, itemY, { width: 80, align: 'right' });
-            itemY += 20;
+            // ── Session row ───────────────────────────────────────────────────
+            const desc = invoice.description
+                ? invoice.description.split('\n')[0].trim() + ' (Prestation en ligne)'
+                : 'Cours de mathématiques (Prestation en ligne)';
 
-            // Discount Row
+            doc.text(desc,                      50,  itemY, { width: 200 });
+            doc.text(hours.toString(),           255, itemY, { width: 60,  align: 'right' });
+            doc.text(`${rateHT.toFixed(2)} €`,  320, itemY, { width: 90,  align: 'right' });
+            doc.text(`${baseHT.toFixed(2)} €`,  420, itemY, { width: 80,  align: 'right' });
+            itemY += Math.max(20, doc.heightOfString(desc, { width: 200 }) + 6);
+
+            // ── Discount row ──────────────────────────────────────────────────
             if (discountHT > 0) {
-                doc.text('Remise appliquée', 50, itemY, { width: 200 });
-                doc.text('-', 250, itemY, { width: 50, align: 'right' });
-                doc.text(`-${discountHT.toFixed(2)} €`, 320, itemY, { width: 80, align: 'right' });
-                doc.text(`-${discountHT.toFixed(2)} €`, 420, itemY, { width: 80, align: 'right' });
+                doc.text('Remise appliquée',              50,  itemY, { width: 200 });
+                doc.text('-',                             255, itemY, { width: 60,  align: 'right' });
+                doc.text(`-${discountHT.toFixed(2)} €`,  320, itemY, { width: 90,  align: 'right' });
+                doc.text(`-${discountHT.toFixed(2)} €`,  420, itemY, { width: 80,  align: 'right' });
                 itemY += 20;
             }
 
-            doc.moveTo(50, itemY + 10).lineTo(500, itemY + 10).stroke();
-
-            // --- TOTALS BLOCK ---
-            let totalY = itemY + 25;
-            doc.font('Helvetica-Bold');
-
-            if (isPro) {
-                doc.text('Total HT:', 300, totalY, { width: 100, align: 'right' });
-                doc.text(`${totalHT.toFixed(2)} €`, 420, totalY, { width: 80, align: 'right' });
-                totalY += 20;
-
-                doc.text('TVA (20%):', 300, totalY, { width: 100, align: 'right' });
-                doc.text(`${tvaAmount.toFixed(2)} €`, 420, totalY, { width: 80, align: 'right' });
-                totalY += 20;
+            // ── Acompte deduction row ─────────────────────────────────────────
+            if (acompteRow) {
+                doc.moveTo(50, itemY).lineTo(500, itemY).lineWidth(0.3).stroke();
+                itemY += 6;
+                doc.font('Helvetica').fontSize(10).fillColor('#374151');
+                doc.text(acompteRow.label,                             50,  itemY, { width: 200 });
+                doc.text('1',                                          255, itemY, { width: 60,  align: 'right' });
+                doc.fillColor('#DC2626');
+                doc.text(`${acompteRow.unitPrice.toFixed(2)} €`,       320, itemY, { width: 90,  align: 'right' });
+                doc.text(`${acompteRow.total.toFixed(2)} €`,           420, itemY, { width: 80,  align: 'right' });
+                doc.fillColor('black');
+                itemY += Math.max(20, doc.heightOfString(acompteRow.label, { width: 200 }) + 6);
             }
 
-            const totalText = isPaid ? (isPro ? 'Total TTC (Payé):' : 'Total Payé:') : (isPro ? 'Total TTC:' : 'Total:');
-            doc.text(totalText, 250, totalY, { width: 150, align: 'right' });
-            doc.text(`${amountTTC.toFixed(2)} €`, 420, totalY, { width: 80, align: 'right' });
+            doc.moveTo(50, itemY + 5).lineTo(500, itemY + 5).lineWidth(0.5).stroke();
 
-            // Store safe Y coordinate before any stamp translations
+            // --- TOTALS BLOCK ---
+            let totalY = itemY + 20;
+            doc.font('Helvetica-Bold').fontSize(10);
+
+            // Total HT
+            doc.text('Total HT :',   300, totalY, { width: 110, align: 'right' });
+            doc.font('Helvetica');
+            doc.text(`${totalHT.toFixed(2)} €`, 420, totalY, { width: 80, align: 'right' });
+            totalY += 18;
+
+            // TVA
+            doc.font('Helvetica-Bold');
+            doc.text('TVA (20%) :', 300, totalY, { width: 110, align: 'right' });
+            doc.font('Helvetica');
+            doc.text(`${tvaAmount.toFixed(2)} €`, 420, totalY, { width: 80, align: 'right' });
+            totalY += 18;
+
+            // Separator + TTC
+            doc.moveTo(300, totalY).lineTo(500, totalY).lineWidth(0.5).stroke();
+            totalY += 6;
+            const totalText = isPaid ? 'Total TTC (Payé) :' : 'Total TTC :';
+            doc.font('Helvetica-Bold').fontSize(11);
+            doc.text(totalText,                   300, totalY, { width: 110, align: 'right' });
+            doc.text(`${amountTTC.toFixed(2)} €`, 420, totalY, { width: 80,  align: 'right' });
+
+            // Store safe Y coordinate before stamp
             const postTotalY = totalY + 40;
 
             // --- RED STAMP "PAYÉ" ---

@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import {
     Users, BookOpen, Receipt, DollarSign, RefreshCw,
     BarChart3, Zap, Shield, LogOut, ChevronRight,
-    AlertTriangle
+    AlertTriangle, FileText, Download
 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -22,6 +22,8 @@ export default function AdminDashboard() {
     const [students, setStudents] = useState([]);
     const [courses, setCourses] = useState([]);
     const [transactions, setTransactions] = useState([]);
+    const [invoices, setInvoices] = useState([]);
+    const [platformInvoices, setPlatformInvoices] = useState([]);
     const [activeTab, setActiveTab] = useState('metrics');
     const [loading, setLoading] = useState(false);
     const [generating, setGenerating] = useState(false);
@@ -94,12 +96,16 @@ export default function AdminDashboard() {
             const s = await doFetch('/students').catch(() => ({ students: [] }));
             const c = await doFetch('/courses').catch(() => ({ courses: [] }));
             const t = await doFetch('/transactions').catch(() => ({ transactions: [] }));
+            const inv = await doFetch('/invoices').catch(() => ({ invoices: [] }));
             if (m) setMetrics(m);
             setProfessors(p.professors || []);
             setParents(pa.parents || []);
             setStudents(s.students || []);
             setCourses(c.courses || []);
             setTransactions(t.transactions || []);
+            setInvoices(inv.invoices || []);
+            const pinv = await doFetch('/platform-invoices').catch(() => ({ invoices: [] }));
+            setPlatformInvoices(pinv.invoices || []);
         } catch (err) {
             if (err.authError) {
                 setAuthed(false);
@@ -126,6 +132,19 @@ export default function AdminDashboard() {
             alert('Erreur: ' + (err.message || 'Erreur serveur'));
         }
         setGenerating(false);
+    };
+
+    const handleForceRefund = async (invoiceId) => {
+        if (!confirm('Êtes-vous sûr de vouloir forcer le remboursement intégral de cette facture parent via Stripe ?')) return;
+        setLoading(true);
+        try {
+            const res = await doPost(`/force-refund/${invoiceId}`);
+            alert('Remboursement effectué avec succès.');
+            fetchAll();
+        } catch (err) {
+            alert('Erreur: ' + (err.message || 'Erreur serveur'));
+        }
+        setLoading(false);
     };
 
     if (!authed) {
@@ -158,6 +177,8 @@ export default function AdminDashboard() {
         { id: 'students', label: 'Élèves', icon: Users },
         { id: 'courses', label: 'Cours', icon: BookOpen },
         { id: 'transactions', label: 'Transactions', icon: Receipt },
+        { id: 'invoices', label: 'Factures Parents', icon: DollarSign },
+        { id: 'platform-invoices', label: 'Factures B2B', icon: FileText },
     ];
 
     return (
@@ -246,7 +267,7 @@ export default function AdminDashboard() {
                                 </div>
                                 <div>
                                     <p className="text-2xl font-bold">{metrics.totalMRR.toFixed(2)}€</p>
-                                    <p className="text-xs text-muted-foreground">MRR (Abonnements)</p>
+                                    <p className="text-xs text-muted-foreground">Revenus (Subs + Credits)</p>
                                 </div>
                             </div>
                         </Card>
@@ -286,7 +307,7 @@ export default function AdminDashboard() {
                                 </div>
                                 <div className="p-6 rounded-xl bg-secondary/30">
                                     <p className="text-4xl font-bold gradient-text">{metrics.totalMRR.toFixed(2)}€</p>
-                                    <p className="text-muted-foreground mt-2">Total Abonnements perçus</p>
+                                    <p className="text-muted-foreground mt-2">Total Revenus Directs (Subs + Crédits)</p>
                                 </div>
                             </div>
                         </CardContent>
@@ -378,7 +399,7 @@ export default function AdminDashboard() {
                                             <tr key={s.id} className="border-b hover:bg-secondary/20">
                                                 <td className="p-3 font-medium">{s.name}</td>
                                                 <td className="p-3 text-muted-foreground">{s.email || '—'}</td>
-                                                <td className="p-3 text-muted-foreground">{s.parent?.name || '—'}</td>
+                                                <td className="p-3 font-medium text-primary">{s.parent?.name || '—'}</td>
                                                 <td className="p-3 text-muted-foreground">{new Date(s.createdAt).toLocaleDateString('fr-FR')}</td>
                                             </tr>
                                         ))}
@@ -404,7 +425,7 @@ export default function AdminDashboard() {
                                             <th className="text-left p-3 font-medium">Statut</th>
                                             <th className="text-left p-3 font-medium">Professeur</th>
                                             <th className="text-left p-3 font-medium">Élève</th>
-                                            <th className="text-left p-3 font-medium">Tarif</th>
+                                            <th className="text-left p-3 font-medium">Sessions</th>
                                             <th className="text-left p-3 font-medium">Devoirs</th>
                                             <th className="text-left p-3 font-medium">Créé le</th>
                                         </tr>
@@ -424,10 +445,25 @@ export default function AdminDashboard() {
                                                         {c.status === 'LIVE' ? 'En ligne' : c.status}
                                                     </Badge>
                                                 </td>
-                                                <td className="p-3 text-muted-foreground">{c.professor?.name || '—'}</td>
-                                                <td className="p-3 text-muted-foreground">{c.student?.name || '—'}</td>
-                                                <td className="p-3 font-mono">{c.price > 0 ? `${c.price}€` : 'Gratuit'}</td>
-                                                <td className="p-3"><Badge variant="outline">{c.homeworkCount || 0}</Badge></td>
+                                                <td className="p-3">
+                                                    <div className="text-sm">{c.professor?.name || '—'}</div>
+                                                    <div className="text-xs text-muted-foreground">{c.professor?.email || ''}</div>
+                                                </td>
+                                                <td className="p-3">
+                                                    <div className="text-sm">{c.student?.name || '—'}</div>
+                                                    <div className="text-xs text-muted-foreground">{c.student?.email || ''}</div>
+                                                </td>
+                                                <td className="p-3 text-center">
+                                                    <Badge variant="outline" className="font-mono">{c.sessionCount || 0}</Badge>
+                                                </td>
+                                                <td className="p-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <Badge variant="outline">{c.completedHomeworks}/{c.homeworkCount}</Badge>
+                                                        <span className="text-[10px] text-muted-foreground">
+                                                            {c.homeworkCount > 0 ? Math.round((c.completedHomeworks/c.homeworkCount)*100) : 0}%
+                                                        </span>
+                                                    </div>
+                                                </td>
                                                 <td className="p-3 text-muted-foreground">{new Date(c.createdAt).toLocaleDateString('fr-FR')}</td>
                                             </tr>
                                         ))}
@@ -478,6 +514,119 @@ export default function AdminDashboard() {
                                         ))}
                                         {transactions.length === 0 && (
                                             <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">Aucune transaction</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
+                {activeTab === 'invoices' && (
+                    <Card>
+                        <CardHeader><CardTitle>Factures Parents ({invoices.length})</CardTitle></CardHeader>
+                        <CardContent>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="border-b">
+                                            <th className="text-left p-3 font-medium">Référence</th>
+                                            <th className="text-left p-3 font-medium">Date</th>
+                                            <th className="text-left p-3 font-medium">Parent</th>
+                                            <th className="text-left p-3 font-medium">Montant</th>
+                                            <th className="text-left p-3 font-medium">Statut</th>
+                                            <th className="text-left p-3 font-medium">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {invoices.map(inv => (
+                                            <tr key={inv.id} className="border-b hover:bg-secondary/20">
+                                                <td className="p-3 font-medium">{inv.invoiceNumber || '—'}</td>
+                                                <td className="p-3 text-muted-foreground">{new Date(inv.createdAt).toLocaleDateString('fr-FR')}</td>
+                                                <td className="p-3 font-medium">{inv.parent?.name || '—'}</td>
+                                                <td className="p-3 font-mono">{inv.amount.toFixed(2)}€</td>
+                                                <td className="p-3">
+                                                    <Badge variant={inv.status === 'PAID' ? 'success' : inv.status === 'CANCELLED' ? 'destructive' : 'warning'}>
+                                                        {inv.status}
+                                                    </Badge>
+                                                </td>
+                                                <td className="p-3">
+                                                    {inv.status === 'PAID' && inv.stripePaymentIntentId && (
+                                                        <Button variant="outline" size="sm" onClick={() => handleForceRefund(inv.id)} className="text-red-500 hover:text-red-600 hover:bg-red-50">
+                                                            Rembourser
+                                                        </Button>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {invoices.length === 0 && (
+                                            <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">Aucune facture parent</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
+                {activeTab === 'platform-invoices' && (
+                    <Card>
+                        <CardHeader>
+                            <div className="flex items-center justify-between">
+                                <CardTitle className="flex items-center gap-2">
+                                    <FileText className="w-5 h-5 text-primary" />
+                                    Factures B2B — MathBox → Professeurs ({platformInvoices.length})
+                                </CardTitle>
+                                <Button variant="outline" size="sm" onClick={handleGenerateB2B} disabled={generating}>
+                                    <Zap className="w-4 h-4 mr-1.5" />
+                                    {generating ? 'Génération...' : 'Générer ce mois'}
+                                </Button>
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="border-b">
+                                            <th className="text-left p-3 font-medium">N° Facture</th>
+                                            <th className="text-left p-3 font-medium">Date</th>
+                                            <th className="text-left p-3 font-medium">Professeur</th>
+                                            <th className="text-right p-3 font-medium">Montant</th>
+                                            <th className="text-left p-3 font-medium">Statut</th>
+                                            <th className="text-center p-3 font-medium">PDF</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {platformInvoices.map(inv => (
+                                            <tr key={inv.id} className="border-b hover:bg-secondary/20">
+                                                <td className="p-3 font-mono font-medium">{inv.invoiceNumber || '—'}</td>
+                                                <td className="p-3 text-muted-foreground">{new Date(inv.createdAt).toLocaleDateString('fr-FR')}</td>
+                                                <td className="p-3">
+                                                    <div className="font-medium">{inv.professor?.name || '—'}</div>
+                                                    <div className="text-xs text-muted-foreground">{inv.professor?.email || ''}</div>
+                                                </td>
+                                                <td className="p-3 text-right font-mono font-semibold">{inv.amount?.toFixed(2)}€</td>
+                                                <td className="p-3">
+                                                    <Badge variant={inv.status === 'PAID' ? 'success' : inv.status === 'CANCELLED' ? 'destructive' : 'warning'}>
+                                                        {inv.status === 'PAID' ? 'Payée' : inv.status === 'PENDING' ? 'En attente' : inv.status}
+                                                    </Badge>
+                                                </td>
+                                                <td className="p-3 text-center">
+                                                    {inv.documentUrl ? (
+                                                        <a
+                                                            href={`${API_BASE.replace('/api', '')}${inv.documentUrl}`}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                                                        >
+                                                            <Download className="w-3.5 h-3.5" /> PDF
+                                                        </a>
+                                                    ) : '—'}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {platformInvoices.length === 0 && (
+                                            <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">Aucune facture B2B générée</td></tr>
                                         )}
                                     </tbody>
                                 </table>

@@ -16,13 +16,15 @@ import {
     Eraser, Type, Square, Circle, Minus, Triangle, Camera, Trash2,
     Lock, Unlock, MessageSquare, Send, X, Grid3X3,
     Monitor, MonitorOff, ImagePlus, Cloud, Folder, ChevronRight, File, Paperclip, Download, BookOpen,
-    Plus, Edit3, AlertTriangle, ZoomIn, ZoomOut, FileDown, FileUp, CheckSquare
+    Plus, Edit3, AlertTriangle, ZoomIn, ZoomOut, FileDown, FileUp, CheckSquare, Hand, MousePointer2,
+    LayoutTemplate, Loader2
 } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 const genId = () => Math.random().toString(36).substring(2, 10);
-const makeTab = (n, id = null) => ({ id: id || genId(), title: `Board ${n}`, canvasData: null, background: 'white' });
+const makeTab = (n, id = null) => ({ id: id || genId(), title: `Board ${n}`, canvasData: null, background: 'white', images: [] });
 
 const COLORS = ['#000000', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6'];
 
@@ -49,6 +51,7 @@ const BG_STYLES = {
 };
 
 const TOOLS = [
+    { id: 'move', icon: Hand, label: 'Déplacer' },
     { id: 'pen', icon: PenTool, label: 'Stylo' },
     { id: 'eraser', icon: Eraser, label: 'Gomme' },
     { id: 'line', icon: Minus, label: 'Ligne' },
@@ -56,8 +59,13 @@ const TOOLS = [
     { id: 'circle', icon: Circle, label: 'Cercle' },
     { id: 'triangle', icon: Triangle, label: 'Triangle' },
     { id: 'text', icon: Type, label: 'Texte' },
+    { id: 'imgselect', icon: MousePointer2, label: 'Sél. image' },
     { id: 'image', icon: ImagePlus, label: 'Image' },
 ];
+
+// Virtual canvas dimensions — large fixed size for infinite-feeling board
+const CANVAS_W = 4000;
+const CANVAS_H = 3000;
 
 class ErrorBoundary extends React.Component {
     constructor(props) { super(props); this.state = { hasError: false, error: null }; }
@@ -69,6 +77,61 @@ class ErrorBoundary extends React.Component {
         }
         return this.props.children;
     }
+}
+
+// ===== PREP BOARD (Solo mode without students) =====
+export function PrepBoard() {
+    const { courseCode } = useParams();
+    const { user } = useAuthStore();
+    const navigate = useNavigate();
+    const [connectionInfo, setConnectionInfo] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        async function fetchToken() {
+            try {
+                const data = await api.post('/room/token', { courseCode });
+                setConnectionInfo(data);
+            } catch (err) { setError(err.message); }
+            setLoading(false);
+        }
+        fetchToken();
+    }, [courseCode]);
+
+    if (loading) return <div className="min-h-screen flex items-center justify-center">Chargement...</div>;
+    if (error) return (
+        <div className="min-h-screen flex items-center justify-center p-4">
+            <div className="bg-card rounded-xl border border-red-500/20 p-8 text-center space-y-4">
+                <AlertTriangle className="w-8 h-8 text-red-500 mx-auto" />
+                <p className="text-muted-foreground">{error}</p>
+                <Button variant="outline" onClick={() => navigate('/dashboard')}><ArrowLeft className="w-4 h-4 mr-2" /> Dashboard</Button>
+            </div>
+        </div>
+    );
+
+    return (
+        <LiveKitRoom
+            serverUrl={connectionInfo.url}
+            token={connectionInfo.token}
+            connect={true}
+            className="min-h-screen bg-background"
+            data-lk-theme="default"
+        >
+            <RoomAudioRenderer />
+            <ErrorBoundary>
+                <RoomContent
+                    courseCode={courseCode}
+                    sessionId={connectionInfo.sessionId}
+                    courseId={connectionInfo.courseId}
+                    user={user}
+                    initialWhiteboardState={connectionInfo.whiteboardState}
+                    prepMode={true}
+                    onLeave={() => navigate('/dashboard')}
+                />
+            </ErrorBoundary>
+        </LiveKitRoom>
+    );
 }
 
 export default function Room() {
@@ -135,13 +198,13 @@ export default function Room() {
     );
 }
 
-function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardState, onLeave }) {
+function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardState, onLeave, prepMode = false }) {
     const room = useRoomContext();
     const { localParticipant } = useLocalParticipant();
     const [messages, setMessages] = useState([]);
     const allCameraTracks = useTracks([Track.Source.Camera], { onlySubscribed: false });
     const screenShareTracks = useTracks([Track.Source.ScreenShare], { onlySubscribed: false });
-    const [viewMode, setViewMode] = useState('VIDEO');
+    const [viewMode, setViewMode] = useState('BOARD'); // prep mode always BOARD
     const [chatOpen, setChatOpen] = useState(false);
     const [locked, setLocked] = useState(false);
     const [screenSharing, setScreenSharing] = useState(false);
@@ -159,6 +222,21 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
     const [showValidateModal, setShowValidateModal] = useState(false);
     const [validating, setValidating] = useState(false);
     const [sessionDuration, setSessionDuration] = useState(0);
+    const [validationResult, setValidationResult] = useState(null); // null | { billingMode, invoiceGenerated }
+    const [courseHourlyRate, setCourseHourlyRate] = useState(null); // Fetched from course config
+    const [savingLeave, setSavingLeave] = useState(false);
+
+    // Fetch course's configured hourly rate (for prof)
+    useEffect(() => {
+        if (!isProf || !courseId) return;
+        api.get(`/courses/${courseId}`)
+            .then(data => {
+                if (data.course?.hourlyRate != null) {
+                    setCourseHourlyRate(data.course.hourlyRate);
+                }
+            })
+            .catch(() => {}); // Silently fail — rate just stays null
+    }, [isProf, courseId]);
 
     // ===== TAB STATE =====
     const initTabs = () => {
@@ -195,35 +273,48 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
     // Save on leave
     const handleLeave = useCallback(async () => {
         if (isProf) {
-            await saveWhiteboard();
-            // Stop recording if active
-            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-                mediaRecorderRef.current.stop();
-            }
-            // Calculate session duration in minutes
-            const durationMinutes = Math.round((new Date() - sessionStartRef.current) / 60000);
-            setSessionDuration(durationMinutes);
-            setShowValidateModal(true);
+            setSavingLeave(true);
+            setTimeout(async () => {
+                await saveWhiteboard();
+                if (prepMode) { onLeave(); return; }
+                // Stop recording if active
+                if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+                    mediaRecorderRef.current.stop();
+                }
+                // Calculate session duration in minutes
+                const durationMinutes = Math.round((new Date() - sessionStartRef.current) / 60000);
+                setSessionDuration(durationMinutes);
+                setSavingLeave(false);
+                setShowValidateModal(true);
+            }, 50);
             return; // Don't navigate yet
         }
         onLeave();
-    }, [isProf, saveWhiteboard, onLeave]);
+    }, [isProf, saveWhiteboard, onLeave, prepMode]);
 
-    const confirmLeave = async (hoursConsumed) => {
+    const confirmLeave = async (generateAIReport, durationMinutes) => {
         setValidating(true);
         try {
-            // Post session data to backend
-            await api.post('/room/validate-session', {
+            const result = await api.post('/room/validate-session', {
                 courseId,
                 sessionId,
-                durationMinutes: sessionDuration,
-                hoursConsumed: parseFloat(hoursConsumed) || 0,
-                hasAudioRecording: audioChunksRef.current.length > 0
+                durationMinutes: parseFloat(durationMinutes) || sessionDuration,
+                hasAudioRecording: audioChunksRef.current.length > 0,
+                generateAIReport,
+                hourlyRate: courseHourlyRate ?? 0,
             });
+            // Show result instead of immediately leaving
+            setValidationResult(result);
         } catch (err) {
             console.error('[Room] Session validation error:', err);
+            // Even on error, show result and let user leave
+            setValidationResult({ error: err.message });
         }
         setValidating(false);
+        // Don't navigate yet — show result banner first
+    };
+
+    const leaveAfterResult = () => {
         onLeave();
     };
 
@@ -234,8 +325,9 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
     // Tab import handler
     const importTabs = useCallback((importedTabs) => {
         if (!isProf) return;
-        const newTabs = importedTabs.map(t => ({ ...t, id: t.id || genId() }));
-        setTabs(newTabs);
+        // Always generate fresh IDs for imported tabs to avoid collisions
+        const newTabs = importedTabs.map(t => ({ ...t, id: genId(), images: t.images || [] }));
+        setTabs(prev => [...prev, ...newTabs]);
         setActiveTabId(newTabs[0].id);
         debouncedSave();
     }, [isProf, debouncedSave]);
@@ -295,14 +387,18 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
 
     const closeTab = useCallback((tabId) => {
         if (!isProf || tabs.length <= 1) return;
-        setTabs(prev => {
-            const next = prev.filter(t => t.id !== tabId);
-            if (activeTabId === tabId) setActiveTabId(next[0].id);
-            return next;
-        });
+        
+        let newActiveId = activeTabId;
+        if (activeTabId === tabId) {
+            newActiveId = tabs.find(t => t.id !== tabId)?.id || tabs[0].id;
+        }
+
+        setTabs(prev => prev.filter(t => t.id !== tabId));
+        setActiveTabId(newActiveId);
+        
         sendDataPacketFn({ type: 'tab-close', tabId });
         debouncedSave();
-    }, [isProf, tabs.length, activeTabId, debouncedSave]);
+    }, [isProf, tabs, activeTabId, debouncedSave]);
 
     const renameTab = useCallback((tabId, title) => {
         if (!isProf) return;
@@ -364,7 +460,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
             sendDataPacketFn({
                 type: 'tab-sync',
                 activeTabId,
-                tabsInfo: tabs.map(t => ({ id: t.id, title: t.title, background: t.background })), // No canvasData to respect WebRTC limits
+                tabsInfo: tabs.map(t => ({ id: t.id, title: t.title, background: t.background, images: t.images || [] })), // No canvasData to respect WebRTC limits
             });
         };
         room.on(RoomEvent.ParticipantConnected, handleNewParticipant);
@@ -500,20 +596,26 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
         <div className="h-screen flex flex-col">
             <div className="h-12 glass-strong border-b flex items-center justify-between px-4 shrink-0">
                 <div className="flex items-center gap-3">
-                    <Button variant="ghost" size="sm" onClick={handleLeave}><ArrowLeft className="w-4 h-4 mr-1" /> Quitter</Button>
-                    <Badge variant="success" className="text-xs"><span className="w-2 h-2 rounded-full bg-emerald-400 mr-1.5 animate-pulse" /> En direct</Badge>
+                    <Button variant="ghost" size="sm" onClick={handleLeave}><ArrowLeft className="w-4 h-4 mr-1" /> {prepMode ? 'Dashboard' : 'Quitter'}</Button>
+                    {prepMode ? (
+                        <Badge className="text-xs bg-violet-500/20 text-violet-300 border-violet-500/30">
+                            <LayoutTemplate className="w-3 h-3 mr-1" /> Préparation de tableau
+                        </Badge>
+                    ) : (
+                        <Badge variant="success" className="text-xs"><span className="w-2 h-2 rounded-full bg-emerald-400 mr-1.5 animate-pulse" /> En direct</Badge>
+                    )}
                 </div>
                 <div className="flex items-center gap-2">
-                    {isProf && (
+                    {isProf && !prepMode && (
                         <>
                             <Button variant={locked ? 'destructive' : 'ghost'} size="sm" onClick={async () => { const next = !locked; setLocked(next); await sendDataPacket({ type: 'lock', locked: next }); }}>{locked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}</Button>
                             <Button variant={viewMode === 'BOARD' ? 'default' : 'ghost'} size="sm" onClick={() => (viewMode === 'BOARD' ? broadcastMode('VIDEO') : broadcastMode('BOARD'))}><PenTool className="w-4 h-4 mr-1" /> Tableau</Button>
-                            <Button variant={screenSharing ? 'default' : 'ghost'} size="sm" onClick={toggleScreenShare}>{screenSharing ? <><MonitorOff className="w-4 h-4 mr-1" /> Stop</> : <><Monitor className="w-4 h-4 mr-1" /> Écran</>}</Button>
+                            <Button variant={screenSharing ? 'default' : 'ghost'} size="sm" onClick={toggleScreenShare}>{screenSharing ? <><MonitorOff className="w-4 h-4 mr-1" />Stop</> : <><Monitor className="w-4 h-4 mr-1" /> Écran</>}</Button>
                         </>
                     )}
-                    <Button variant={chatOpen ? 'default' : 'ghost'} size="sm" onClick={() => setChatOpen(!chatOpen)}><MessageSquare className="w-4 h-4 mr-1" /> Chat</Button>
+                    {!prepMode && <Button variant={chatOpen ? 'default' : 'ghost'} size="sm" onClick={() => setChatOpen(!chatOpen)}><MessageSquare className="w-4 h-4 mr-1" /> Chat</Button>}
                     <ScreenshotButton sessionId={sessionId} courseId={courseId} />
-                    {isProf && <HomeworkButton courseId={courseId} />}
+                    {isProf && !prepMode && <HomeworkButton courseId={courseId} />}
                 </div>
             </div>
             <div className="flex-1 flex overflow-hidden relative">
@@ -546,6 +648,10 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
                                         activeTabId={activeTabId}
                                         tabData={tabs.find(t => t.id === activeTabId)}
                                         onBackgroundChange={changeBackground}
+                                        onImagesChange={(tabId, newImages) => {
+                                            setTabs(prev => prev.map(t => t.id === tabId ? { ...t, images: newImages } : t));
+                                            debouncedSave();
+                                        }}
                                     />
                                 </div>
                             </div>
@@ -578,41 +684,148 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
             {/* Post-Room Validation Modal */}
             {showValidateModal && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70">
-                    <div className="bg-card rounded-2xl border border-border p-8 w-[440px] shadow-2xl space-y-6">
-                        <div className="text-center">
-                            <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
-                                <CheckSquare className="w-8 h-8 text-primary" />
-                            </div>
-                            <h2 className="text-xl font-bold">Valider le cours</h2>
-                            <p className="text-muted-foreground text-sm mt-1">Durée de la session: {sessionDuration} min</p>
-                        </div>
-                        <div className="space-y-3">
-                            <Label>Heures à déduire du stock élève</Label>
-                            <Input
-                                id="hoursConsumed"
-                                type="number"
-                                step="0.5"
-                                min="0"
-                                defaultValue={Math.max(0.5, Math.round(sessionDuration / 60 * 2) / 2)}
-                                placeholder="ex: 1.5"
-                            />
-                            <p className="text-xs text-muted-foreground">Ces heures seront déduites du stock d'heures achetées par le parent.</p>
-                        </div>
-                        <div className="flex gap-3">
-                            <Button variant="ghost" className="flex-1" onClick={skipAndLeave}>Passer</Button>
-                            <Button
-                                variant="glow"
-                                className="flex-1"
-                                disabled={validating}
-                                onClick={() => {
-                                    const hrs = document.getElementById('hoursConsumed')?.value;
-                                    confirmLeave(hrs);
-                                }}
-                            >
-                                {validating ? 'Validation...' : 'Valider et quitter'}
-                            </Button>
-                        </div>
+                    <div className="bg-card rounded-2xl border border-border p-8 w-[480px] shadow-2xl space-y-5">
+
+                                {/* STEP 1: Validation form */}
+                        {!validationResult && (
+                            <>
+                                <div className="text-center">
+                                    <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                                        <CheckSquare className="w-8 h-8 text-primary" />
+                                    </div>
+                                    <h2 className="text-xl font-bold">Valider le cours</h2>
+                                </div>
+
+                                {/* Duration input — default = timer value, but professor can override */}
+                                <div className="space-y-2">
+                                    <Label>Durée de la séance (minutes)</Label>
+                                    <Input
+                                        id="durationField"
+                                        type="number"
+                                        step="1"
+                                        min="1"
+                                        defaultValue={sessionDuration}
+                                        placeholder="ex: 60"
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        Le chronomètre indique <strong>{sessionDuration} min</strong>. Ajustez si nécessaire.
+                                    </p>
+                                </div>
+
+                                {/* Show locked hourly rate from course config */}
+                                <div className="p-3 rounded-lg border border-border/50 bg-secondary/30 space-y-1">
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-muted-foreground">Taux horaire configuré</span>
+                                        {courseHourlyRate != null ? (
+                                            <span className="font-semibold text-emerald-400">{courseHourlyRate} €/h 🔒</span>
+                                        ) : (
+                                            <span className="text-amber-400 text-xs">Non configuré — facture à 0 €</span>
+                                        )}
+                                    </div>
+                                    {courseHourlyRate != null && (
+                                        <div className="flex justify-between text-xs text-muted-foreground">
+                                            <span>Coût estimé</span>
+                                            <strong className="text-primary">
+                                                {((sessionDuration / 60) * courseHourlyRate).toFixed(2)} €
+                                            </strong>
+                                        </div>
+                                    )}
+                                    <p className="text-xs text-muted-foreground/60">
+                                        Selon le mode de facturation, une facture sera générée ou enregistrée pour la fin du mois.
+                                    </p>
+                                </div>
+
+                                <div className="flex items-center gap-2 border p-3 rounded-lg border-primary/20 bg-primary/5">
+                                    <input type="checkbox" id="generateAI" defaultChecked className="w-4 h-4 rounded text-primary cursor-pointer" />
+                                    <Label htmlFor="generateAI" className="m-0 cursor-pointer font-medium">Générer le rapport IA (BETA)</Label>
+                                </div>
+
+                                <div className="flex gap-3">
+                                    <Button variant="ghost" className="flex-1" onClick={skipAndLeave}>Passer</Button>
+                                    <Button
+                                        variant="glow"
+                                        className="flex-1"
+                                        disabled={validating}
+                                        onClick={() => {
+                                            const genAI = document.getElementById('generateAI')?.checked;
+                                            const duration = document.getElementById('durationField')?.value;
+                                            confirmLeave(genAI, duration);
+                                        }}
+                                    >
+                                        {validating ? 'Validation...' : 'Valider et quitter'}
+                                    </Button>
+                                </div>
+                            </>
+                        )}
+
+                        {/* STEP 2: Result banner */}
+                        {validationResult && (
+                            <>
+                                {validationResult.error ? (
+                                    <div className="text-center space-y-4">
+                                        <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center mx-auto">
+                                            <AlertTriangle className="w-8 h-8 text-red-400" />
+                                        </div>
+                                        <h2 className="text-xl font-bold">Erreur lors de la validation</h2>
+                                        <p className="text-sm text-muted-foreground">{validationResult.error}</p>
+                                        <p className="text-xs text-muted-foreground">La séance a été enregistrée mais aucune facture n'a été générée.</p>
+                                        <Button variant="glow" className="w-full" onClick={leaveAfterResult}>Quitter</Button>
+                                    </div>
+                                ) : validationResult.invoiceGenerated ? (
+                                    <div className="text-center space-y-4">
+                                        <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto">
+                                            <CheckSquare className="w-8 h-8 text-emerald-400" />
+                                        </div>
+                                        <h2 className="text-xl font-bold">Cours validé !</h2>
+                                        <div className="p-4 rounded-xl bg-secondary/40 border border-border space-y-1 text-sm text-left">
+                                            <div className="flex justify-between">
+                                                <span className="text-muted-foreground">Facture générée :</span>
+                                                <strong>{validationResult.invoiceGenerated.invoiceNumber}</strong>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span className="text-muted-foreground">Heures couvertes par acompte :</span>
+                                                <span className="text-emerald-400">{validationResult.invoiceGenerated.coveredHours?.toFixed(2)}h</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span className="text-muted-foreground">Heures à facturer :</span>
+                                                <span className="text-amber-400">{validationResult.invoiceGenerated.uncoveredHours?.toFixed(2)}h</span>
+                                            </div>
+                                            <div className="flex justify-between font-bold text-base mt-1 pt-1 border-t border-border">
+                                                <span>Total facturé :</span>
+                                                <span className={validationResult.invoiceGenerated.amount <= 0 ? 'text-emerald-400' : 'text-primary'}>
+                                                    {validationResult.invoiceGenerated.amount?.toFixed(2)} €
+                                                    {validationResult.invoiceGenerated.status === 'PAID' && <span className="ml-2 text-xs font-normal text-emerald-400">(Payé par acompte)</span>}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <Button variant="glow" className="w-full" onClick={leaveAfterResult}>Quitter</Button>
+                                    </div>
+                                ) : (
+                                    <div className="text-center space-y-4">
+                                        <div className="w-16 h-16 rounded-full bg-violet-500/10 flex items-center justify-center mx-auto">
+                                            <CheckSquare className="w-8 h-8 text-violet-400" />
+                                        </div>
+                                        <h2 className="text-xl font-bold">Cours enregistré !</h2>
+                                        <p className="text-sm text-muted-foreground">
+                                            {validationResult.billingMode === 'MONTHLY'
+                                                ? 'La séance a été enregistrée. La facture de solde sera générée à la fin du mois ou manuellement depuis l\'onglet Facturation.'
+                                                : 'La séance a été enregistrée. Aucun élève n\'est assigné à ce cours, donc aucune facture n\'a été générée.'}
+                                        </p>
+                                        <Button variant="glow" className="w-full" onClick={leaveAfterResult}>Quitter</Button>
+                                    </div>
+                                )}
+                            </>
+                        )}
+
                     </div>
+                </div>
+            )}
+
+            {/* Prep mode saving overlay */}
+            {savingLeave && (
+                <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
+                    <Loader2 className="w-10 h-10 text-primary animate-spin mb-4" />
+                    <p className="font-semibold text-lg text-foreground">Sauvegarde du tableau en cours...</p>
                 </div>
             )}
         </div>
@@ -731,7 +944,7 @@ function TabExportImportButtons({ tabs, onImport, isProf, whiteboardRef, activeT
 }
 
 // ===== WHITEBOARD COMPONENT =====
-const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, locked, transparent, isProf, activeTabId, tabData, onBackgroundChange }, ref) {
+const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, locked, transparent, isProf, activeTabId, tabData, onBackgroundChange, onImagesChange }, ref) {
     const room = useRoomContext();
     const canvasRef = useRef(null);
     const previewCanvasRef = useRef(null);
@@ -744,18 +957,22 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
     const lastPoint = useRef(null);
     const shapeStartRef = useRef(null);
 
-    // Zoom state
+    // Zoom / pan state
     const [scale, setScale] = useState(1);
     const [offset, setOffset] = useState({ x: 0, y: 0 });
     const isPanning = useRef(false);
     const panStart = useRef({ x: 0, y: 0 });
-    const MIN_ZOOM = 0.3;
+    const MIN_ZOOM = 0.15;
     const MAX_ZOOM = 5;
     const [remoteText, setRemoteText] = useState(null);
     const [textInput, setTextInput] = useState(null);
     const textRef = useRef(null);
     const imageInputRef = useRef(null);
     const [cursorPos, setCursorPos] = useState(null);
+    const [floatingImage, setFloatingImage] = useState(null);
+    // Track images independently of the raster canvas so they can be moved without erasing background strokes
+    const [localImages, setLocalImages] = useState(tabData?.images || []);
+    const dragStartRef = useRef(null);
     const prevTabIdRef = useRef(null); // null so first mount triggers canvas restore
     const lastDrawnDataRef = useRef(null);
 
@@ -779,50 +996,44 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
         const canvas = canvasRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
         const pCtx = previewCanvasRef.current?.getContext('2d');
-        if (pCtx) pCtx.clearRect(0, 0, previewCanvasRef.current.width, previewCanvasRef.current.height);
+        if (pCtx) pCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+        if (tabData?.images) setLocalImages(tabData.images);
         if (tabData?.canvasData) {
             const img = new Image();
-            img.onload = () => { ctx.drawImage(img, 0, 0); };
+            img.onload = () => { ctx.drawImage(img, 0, 0, CANVAS_W, CANVAS_H); };
             img.src = tabData.canvasData;
         }
         setBackground(tabData?.background || 'white');
     }, [activeTabId, tabData]);
 
-    // Initial resize
+    // Set large fixed canvas resolution once on mount — no resize needed
     useEffect(() => {
-        const handleResize = () => {
-            const canvas = canvasRef.current;
-            const preview = previewCanvasRef.current;
-            if (!canvas || !preview || !wrapperRef.current) return;
-            const rect = wrapperRef.current.getBoundingClientRect();
-            const tmpCanvas = document.createElement('canvas');
-            tmpCanvas.width = canvas.width; tmpCanvas.height = canvas.height;
-            tmpCanvas.getContext('2d').drawImage(canvas, 0, 0);
-            canvas.width = rect.width; canvas.height = rect.height;
-            preview.width = rect.width; preview.height = rect.height;
-            canvas.getContext('2d').drawImage(tmpCanvas, 0, 0);
-        };
-        handleResize();
-        window.addEventListener('resize', handleResize);
-        return () => window.removeEventListener('resize', handleResize);
-    }, []);
-
-    // Draw initial canvasData after first resize (for persistent state on mount)
-    useEffect(() => {
-        if (!tabData?.canvasData) return;
         const canvas = canvasRef.current;
-        if (!canvas) return;
-        const timer = setTimeout(() => {
+        const preview = previewCanvasRef.current;
+        if (!canvas || !preview) return;
+        canvas.width = CANVAS_W;
+        canvas.height = CANVAS_H;
+        preview.width = CANVAS_W;
+        preview.height = CANVAS_H;
+
+        if (wrapperRef.current) {
+            const rect = wrapperRef.current.getBoundingClientRect();
+            setOffset({
+                x: rect.width / 2 - CANVAS_W / 2,
+                y: rect.height / 2 - CANVAS_H / 2
+            });
+        }
+
+        // Restore initial canvasData
+        if (tabData?.canvasData) {
             const img = new Image();
-            img.onload = () => {
-                canvas.getContext('2d').drawImage(img, 0, 0);
-            };
+            img.onload = () => canvas.getContext('2d').drawImage(img, 0, 0, CANVAS_W, CANVAS_H);
             img.src = tabData.canvasData;
-        }, 100); // Small delay to ensure resize has completed
-        return () => clearTimeout(timer);
-    }, []); // Only on mount
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const sendData = async (payload) => {
         if (!room || !localParticipant) return;
@@ -851,8 +1062,8 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
         ctx.restore();
     };
 
-    const clearCanvas = () => { const ctx = canvasRef.current?.getContext('2d'); ctx?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height); };
-    const clearPreview = () => { const ctx = previewCanvasRef.current?.getContext('2d'); ctx?.clearRect(0, 0, previewCanvasRef.current.width, previewCanvasRef.current.height); };
+    const clearCanvas = () => { const ctx = canvasRef.current?.getContext('2d'); ctx?.clearRect(0, 0, CANVAS_W, CANVAS_H); setLocalImages([]); onImagesChange(activeTabId, []); };
+    const clearPreview = () => { const ctx = previewCanvasRef.current?.getContext('2d'); ctx?.clearRect(0, 0, CANVAS_W, CANVAS_H); };
 
     useEffect(() => {
         if (!room) return;
@@ -866,7 +1077,12 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                 else if (data.type === 'clear') clearCanvas();
                 else if (data.type === 'text-live') setRemoteText({ x: data.x1, y: data.y1, text: data.text, color: data.color, size: data.thickness * 6 });
                 else if (data.type === 'text-commit') { applyDrawing(data); setRemoteText(null); }
-                else if (data.type === 'image') { const img = new Image(); img.crossOrigin = "anonymous"; img.onload = () => { canvasRef.current.getContext('2d').drawImage(img, data.x, data.y, data.w, data.h) }; img.src = data.src; }
+                else if (data.type === 'image-add') {
+                    setLocalImages(prev => { const next = [...prev, data.image]; onImagesChange(activeTabId, next); return next; });
+                }
+                else if (data.type === 'image-remove') {
+                    setLocalImages(prev => { const next = prev.filter(im => im.id !== data.imageId); onImagesChange(activeTabId, next); return next; });
+                }
                 else if (data.type === 'background') setBackground(data.bg);
             } catch (e) { }
         };
@@ -875,10 +1091,10 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
     }, [room, localParticipant, activeTabId]);
 
     const getPos = (e) => {
-        const rect = canvasRef.current.getBoundingClientRect();
+        const rect = wrapperRef.current.getBoundingClientRect();
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
         const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-        // Account for zoom: transform screen coords to canvas coords
+        // Account for zoom + pan: transform screen coords to virtual canvas coords
         return {
             x: (clientX - rect.left - offset.x) / scale,
             y: (clientY - rect.top - offset.y) / scale
@@ -938,6 +1154,12 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
         const pos = getPos(e);
         updateCursor(e);
 
+        if (tool === 'move') {
+            isPanning.current = true;
+            panStart.current = { x: e.clientX, y: e.clientY, offsetX: offset.x, offsetY: offset.y };
+            return;
+        }
+
         if (textInput && tool !== 'text') {
             const val = textRef.current?.value;
             if (val) { const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val }; applyDrawing(drawData); sendData(drawData); }
@@ -955,7 +1177,24 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
         }
 
         if (tool === 'image') {
-            if (isProf) setShowSourceModal(true); // Open modal instead of click
+            if (isProf) setShowSourceModal(true);
+            return;
+        }
+
+        if (tool === 'imgselect') {
+            // Find the topmost committed image at this canvas position
+            // Since localImages are rendered sequentially, we search backwards
+            for (let i = localImages.length - 1; i >= 0; i--) {
+                const im = localImages[i];
+                if (pos.x >= im.x && pos.x <= im.x + im.w && pos.y >= im.y && pos.y <= im.y + im.h) {
+                    const nextImages = localImages.filter((_, idx) => idx !== i);
+                    setLocalImages(nextImages);
+                    onImagesChange(activeTabId, nextImages);
+                    sendData({ type: 'image-remove', tabId: activeTabId, imageId: im.id });
+                    setFloatingImage({ url: im.url, x: im.x, y: im.y, w: im.w, h: im.h });
+                    return;
+                }
+            }
             return;
         }
 
@@ -966,6 +1205,13 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
 
     const onPointerMove = (e) => {
         updateCursor(e);
+        if (tool === 'move' && isPanning.current) {
+            setOffset({
+                x: panStart.current.offsetX + (e.clientX - panStart.current.x),
+                y: panStart.current.offsetY + (e.clientY - panStart.current.y)
+            });
+            return;
+        }
         if (!isDrawing || locked) return;
         const pos = getPos(e);
         if (tool === 'pen' || tool === 'eraser') {
@@ -979,6 +1225,10 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
     };
 
     const onPointerUp = (e) => {
+        if (tool === 'move') {
+            isPanning.current = false;
+            return;
+        }
         if (!isDrawing || locked) return;
         setIsDrawing(false);
         const pos = getPos(e.changedTouches ? e.changedTouches[0] : e);
@@ -997,18 +1247,63 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
     const activeBgInfo = BG_STYLES[background] || BG_STYLES.white;
     const bgStyle = transparent ? { backgroundColor: 'transparent' } : activeBgInfo.style;
 
+    const commitFloatingImage = () => {
+        if (!floatingImage || !canvasRef.current) return;
+        const newImage = { id: genId(), url: floatingImage.url, x: floatingImage.x, y: floatingImage.y, w: floatingImage.w, h: floatingImage.h };
+        const nextImages = [...localImages, newImage];
+        setLocalImages(nextImages);
+        onImagesChange(activeTabId, nextImages);
+        sendData({ type: 'image-add', tabId: activeTabId, image: newImage });
+        setFloatingImage(null);
+        setTool('pen');
+    };
+
     const handleCloudImageSelect = (file) => {
         const img = new Image();
         img.crossOrigin = "anonymous";
         img.onload = () => {
-            const w = Math.min(img.width, 400); const h = img.height * (w / img.width);
-            const x = (canvasRef.current.width - w) / 2; const y = (canvasRef.current.height - h) / 2;
-            canvasRef.current.getContext('2d').drawImage(img, x, y, w, h);
-            sendData({ type: 'image', src: file.url, x, y, w, h });
+            const w = Math.min(img.width, 800) / scale;
+            const h = (img.height / img.width) * w;
+            const cw = wrapperRef.current ? wrapperRef.current.clientWidth : 800;
+            const ch = wrapperRef.current ? wrapperRef.current.clientHeight : 600;
+            const nx = (cw / 2) - (w / 2 * scale);
+            const ny = (ch / 2) - (h / 2 * scale);
+            const cx = (nx - offset.x) / scale;
+            const cy = (ny - offset.y) / scale;
+            setFloatingImage({ url: file.url, x: cx, y: cy, w, h });
+            setShowCloudPicker(false);
+            setTool('move');
         };
         img.src = file.url;
-        setShowCloudPicker(false);
     };
+
+    useEffect(() => {
+        const handleWinMove = (e) => {
+            if (!floatingImage || !dragStartRef.current) return;
+            const drag = dragStartRef.current;
+            if (drag.type === 'move') {
+                const dx = (e.clientX - drag.startX) / scale;
+                const dy = (e.clientY - drag.startY) / scale;
+                setFloatingImage(prev => ({ ...prev, x: drag.imgX + dx, y: drag.imgY + dy }));
+            } else if (drag.type === 'resize') {
+                const dx = (e.clientX - drag.startX) / scale;
+                const dy = (e.clientY - drag.startY) / scale;
+                const ratio = drag.startW / drag.startH;
+                const newW = Math.max(50, drag.startW + Math.max(dx, dy));
+                setFloatingImage(prev => ({ ...prev, w: newW, h: newW / ratio }));
+            }
+        };
+        const handleWinUp = () => { if (dragStartRef.current) dragStartRef.current = null; };
+
+        if (floatingImage) {
+            window.addEventListener('pointermove', handleWinMove);
+            window.addEventListener('pointerup', handleWinUp);
+        }
+        return () => {
+            window.removeEventListener('pointermove', handleWinMove);
+            window.removeEventListener('pointerup', handleWinUp);
+        };
+    }, [floatingImage, scale]);
 
     return (
         <div className="h-full flex">
@@ -1039,9 +1334,45 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                 <button onClick={resetZoom} className="w-8 h-6 rounded text-[10px] text-gray-500 hover:text-white hover:bg-gray-700 flex items-center justify-center" title="Reset zoom">{Math.round(scale * 100)}%</button>
             </div>
 
-            <div ref={wrapperRef} className="flex-1 relative overflow-hidden" style={bgStyle} onPointerLeave={() => setCursorPos(null)}>
+            <div ref={wrapperRef} className="flex-1 relative overflow-hidden bg-gray-200 dark:bg-gray-800" onPointerLeave={() => setCursorPos(null)}>
+                {floatingImage && (
+                    <div
+                        className="absolute z-30 border-2 border-primary border-dashed group cursor-move"
+                        style={{
+                            left: floatingImage.x * scale + offset.x,
+                            top: floatingImage.y * scale + offset.y,
+                            width: Math.max(20, floatingImage.w * scale),
+                            height: Math.max(20, floatingImage.h * scale),
+                            transformOrigin: 'top left'
+                        }}
+                        onPointerDown={(e) => {
+                            e.stopPropagation();
+                            dragStartRef.current = { type: 'move', startX: e.clientX, startY: e.clientY, imgX: floatingImage.x, imgY: floatingImage.y };
+                        }}
+                    >
+                        <img src={floatingImage.url} className="w-full h-full pointer-events-none object-fill" />
+                        <div 
+                            className="absolute -bottom-2 -right-2 w-6 h-6 bg-primary rounded-full cursor-nwse-resize opacity-0 group-hover:opacity-100 flex items-center justify-center text-white pb-0.5 select-none z-40"
+                            onPointerDown={(e) => {
+                                e.stopPropagation();
+                                dragStartRef.current = { type: 'resize', startX: e.clientX, startY: e.clientY, startW: floatingImage.w, startH: floatingImage.h };
+                            }}
+                        >
+                            <Plus className="w-4 h-4" />
+                        </div>
+                        <div className="absolute -bottom-12 left-1/2 -translate-x-1/2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onPointerDown={e => e.stopPropagation()} onClick={commitFloatingImage} className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center hover:bg-emerald-600 shadow-md">
+                                <CheckSquare className="w-4 h-4" />
+                            </button>
+                            <button onPointerDown={e => e.stopPropagation()} onClick={() => setFloatingImage(null)} className="w-8 h-8 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 shadow-md">
+                                <Trash2 className="w-4 h-4" />
+                            </button>
+                        </div>
+                    </div>
+                )}
+                
                 {cursorPos && tool === 'eraser' && (
-                    <div className="fixed pointer-events-none rounded-full border-2 border-black bg-white/50 z-50 transform -translate-x-1/2 -translate-y-1/2 shadow-sm shadow-white" style={{ left: wrapperRef.current?.getBoundingClientRect().left + cursorPos.x, top: wrapperRef.current?.getBoundingClientRect().top + cursorPos.y, width: thickness * 5, height: thickness * 5 }} />
+                    <div className="fixed pointer-events-none rounded-full border-2 border-black bg-white/50 z-50 transform -translate-x-1/2 -translate-y-1/2 shadow-sm shadow-white" style={{ left: wrapperRef.current?.getBoundingClientRect().left + cursorPos.x, top: wrapperRef.current?.getBoundingClientRect().top + cursorPos.y, width: thickness * 5 * scale, height: thickness * 5 * scale }} />
                 )}
 
                 {/* Zoom indicator */}
@@ -1051,21 +1382,57 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                     </div>
                 )}
 
-                <div style={{ transform: 'translate(' + offset.x + 'px, ' + offset.y + 'px) scale(' + scale + ')', transformOrigin: '0 0', width: '100%', height: '100%' }}>
-                    <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10" style={{ cursor: tool === 'eraser' ? 'none' : 'crosshair' }} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={() => { setIsDrawing(false); setCursorPos(null); }} />
-                    <canvas ref={previewCanvasRef} className="absolute inset-0 w-full h-full z-20 pointer-events-none" />
+                {/* Virtual canvas layer — fixed large resolution, CSS-scaled to fill wrapper */}
+                <div style={{
+                    position: 'absolute', top: 0, left: 0,
+                    width: CANVAS_W, height: CANVAS_H,
+                    transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
+                    transformOrigin: '0 0',
+                    boxShadow: '0 0 40px rgba(0,0,0,0.1)',
+                    ...(!transparent ? bgStyle : {})
+                }}>
+                    <canvas
+                        ref={canvasRef}
+                        width={CANVAS_W} height={CANVAS_H}
+                        style={{ display: 'block', cursor: tool === 'eraser' ? 'none' : tool === 'imgselect' ? 'crosshair' : 'crosshair', width: CANVAS_W, height: CANVAS_H }}
+                        className="absolute top-0 left-0 z-10"
+                        onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
+                        onPointerLeave={() => { setIsDrawing(false); setCursorPos(null); }}
+                    />
+                    <canvas
+                        ref={previewCanvasRef}
+                        width={CANVAS_W} height={CANVAS_H}
+                        style={{ display: 'block', width: CANVAS_W, height: CANVAS_H }}
+                        className="absolute top-0 left-0 z-20 pointer-events-none"
+                    />
+                    
+                    {/* DOM-rendered images overlay (between canvas and previewCanvas conceptually, but visually on top) */}
+                    {localImages.map(im => (
+                        <img 
+                            key={im.id} 
+                            src={im.url} 
+                            alt="" 
+                            className="absolute pointer-events-none z-15" 
+                            style={{ left: im.x, top: im.y, width: im.w, height: im.h }} 
+                        />
+                    ))}
+                    {textInput && (
+                        <textarea key={`${textInput.x}-${textInput.y}`} ref={textRef} className="absolute z-50 bg-white/50 outline-none resize-none overflow-hidden" style={{ left: textInput.x, top: textInput.y, color: textInput.color, fontSize: `${textInput.thickness * 6}px`, fontFamily: 'Inter, sans-serif', minWidth: '20px', lineHeight: 1.2, border: '1px dashed #666' }}
+                            autoFocus onKeyDown={e => { 
+                                if (e.key === 'Escape') setTextInput(null); 
+                                else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.blur(); } 
+                                e.stopPropagation(); 
+                            }} onPointerDown={e => e.stopPropagation()}
+                            onChange={e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: e.target.value, color: textInput.color, thickness: textInput.thickness }); }}
+                            onBlur={e => { if (e.target.value.trim()) { const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: e.target.value }; applyDrawing(drawData); sendData(drawData); } setTextInput(null); }}
+                        />
+                    )}
+                    
+                    {remoteText && <span className="absolute pointer-events-none z-30 whitespace-pre" style={{ left: remoteText.x, top: remoteText.y, color: remoteText.color, fontSize: `${remoteText.size}px`, fontFamily: 'Inter, sans-serif', lineHeight: 1.2, textShadow: '0 0 2px white' }}>{remoteText.text}</span>}
                 </div>
 
-                {textInput && (
-                    <textarea key={`${textInput.x}-${textInput.y}`} ref={textRef} className="absolute z-50 bg-white/50 outline-none resize-none overflow-hidden" style={{ left: textInput.x, top: textInput.y, color: textInput.color, fontSize: `${textInput.thickness * 6}px`, fontFamily: 'Inter, sans-serif', minWidth: '20px', lineHeight: 1.2, border: '1px dashed #666' }}
-                        autoFocus onKeyDown={e => { if (e.key === 'Escape') setTextInput(null); e.stopPropagation(); }} onPointerDown={e => e.stopPropagation()}
-                        onChange={e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: e.target.value, color: textInput.color, thickness: textInput.thickness }); }}
-                        onBlur={e => { if (e.target.value.trim()) { const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: e.target.value }; applyDrawing(drawData); sendData(drawData); } setTextInput(null); }}
-                    />
-                )}
-
-                {remoteText && <span className="absolute pointer-events-none z-30 whitespace-pre" style={{ left: remoteText.x, top: remoteText.y, color: remoteText.color, fontSize: `${remoteText.size}px`, fontFamily: 'Inter, sans-serif', lineHeight: 1.2, textShadow: '0 0 2px white' }}>{remoteText.text}</span>}
-                <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => { const img = new Image(); img.onload = () => { const w = Math.min(img.width, 400); const h = img.height * (w / img.width); const x = (canvasRef.current.width - w) / 2; const y = (canvasRef.current.height - h) / 2; canvasRef.current.getContext('2d').drawImage(img, x, y, w, h); sendData({ type: 'image', src: ev.target.result, x, y, w, h }); }; img.src = ev.target.result; }; reader.readAsDataURL(file); e.target.value = ''; }} />
+                {/* Hidden input for image uploads via toolbar */}
+                <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => { handleCloudImageSelect({ url: ev.target.result }); }; reader.readAsDataURL(file); e.target.value = ''; }} />
             </div>
 
             {/* Modals */}

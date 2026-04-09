@@ -162,13 +162,6 @@ async function generateMonthlyB2BInvoices() {
             const increment = String(currentCount + 1).padStart(4, '0');
             const invoiceNumber = 'PLAT-MB-' + increment;
 
-            // Need a courseId — use the first course of this prof
-            const firstCourse = await prisma.course.findFirst({ where: { professorId: group.profId } });
-            if (!firstCourse) {
-                console.log('[B2B] Skipping prof ' + professor.name + ' — no courses found');
-                continue;
-            }
-
             const monthLabel = new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
 
             const invoice = await prisma.courseInvoice.create({
@@ -177,8 +170,6 @@ async function generateMonthlyB2BInvoices() {
                     amount: totalAmount,
                     description: 'Facture plateforme MathBox - ' + monthLabel,
                     professorId: group.profId,
-                    parentId: group.profId,
-                    courseId: firstCourse.id,
                     type: 'PLATFORM_INVOICE',
                     status: 'PAID',
                     paidAt: new Date(),
