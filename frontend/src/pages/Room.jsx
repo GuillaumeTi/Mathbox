@@ -212,10 +212,15 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
     const [audioEnabled, setAudioEnabled] = useState(false);
     const isProf = user.role === 'PROFESSOR';
 
-    // Audio recording state
+    // Audio recording state — Web Audio API mixer for local + remote audio
     const [isRecording, setIsRecording] = useState(false);
     const mediaRecorderRef = useRef(null);
     const audioChunksRef = useRef([]);
+    const audioContextRef = useRef(null);
+    const mixerDestinationRef = useRef(null);
+    const localSourceRef = useRef(null);
+    const remoteSourcesRef = useRef(new Map()); // trackSid -> { source, stream }
+    const localMicStreamRef = useRef(null);
     const sessionStartRef = useRef(new Date());
 
     // Post-room validation modal
@@ -332,39 +337,135 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
         debouncedSave();
     }, [isProf, debouncedSave]);
 
-    // Audio recording controls
+    // ===== AUDIO RECORDING — Web Audio API mixer (local mic + remote tracks) =====
+    // Attach/detach remote audio tracks to the mixer whenever they appear/disappear
+    useEffect(() => {
+        if (!isRecording || !audioContextRef.current || !mixerDestinationRef.current) return;
+        if (!room) return;
+
+        const ctx = audioContextRef.current;
+        const dest = mixerDestinationRef.current;
+
+        const attachRemoteTrack = (track) => {
+            if (track.kind !== 'audio') return;
+            const sid = track.sid || track.mediaStreamTrack?.id;
+            if (!sid || remoteSourcesRef.current.has(sid)) return;
+            try {
+                const ms = new MediaStream([track.mediaStreamTrack]);
+                const source = ctx.createMediaStreamSource(ms);
+                source.connect(dest);
+                remoteSourcesRef.current.set(sid, { source, stream: ms });
+                console.log('[Recording] Remote audio track attached:', sid);
+            } catch (e) {
+                console.error('[Recording] Failed to attach remote track:', e);
+            }
+        };
+
+        const detachRemoteTrack = (track) => {
+            const sid = track.sid || track.mediaStreamTrack?.id;
+            if (!sid) return;
+            const entry = remoteSourcesRef.current.get(sid);
+            if (entry) {
+                try { entry.source.disconnect(); } catch (_) {}
+                remoteSourcesRef.current.delete(sid);
+                console.log('[Recording] Remote audio track detached:', sid);
+            }
+        };
+
+        // Attach any existing remote audio tracks
+        for (const p of room.remoteParticipants.values()) {
+            for (const pub of p.audioTrackPublications.values()) {
+                if (pub.track && pub.isSubscribed) attachRemoteTrack(pub.track);
+            }
+        }
+
+        const onTrackSubscribed = (track) => attachRemoteTrack(track);
+        const onTrackUnsubscribed = (track) => detachRemoteTrack(track);
+
+        room.on(RoomEvent.TrackSubscribed, onTrackSubscribed);
+        room.on(RoomEvent.TrackUnsubscribed, onTrackUnsubscribed);
+
+        return () => {
+            room.off(RoomEvent.TrackSubscribed, onTrackSubscribed);
+            room.off(RoomEvent.TrackUnsubscribed, onTrackUnsubscribed);
+        };
+    }, [isRecording, room]);
+
     const startRecording = async () => {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+            // 1. Create AudioContext + mixer destination
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const dest = ctx.createMediaStreamDestination();
+            audioContextRef.current = ctx;
+            mixerDestinationRef.current = dest;
+
+            // 2. Get local microphone and connect to mixer
+            const localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            localMicStreamRef.current = localStream;
+            const localSource = ctx.createMediaStreamSource(localStream);
+            localSource.connect(dest);
+            localSourceRef.current = localSource;
+
+            // 3. Attach any already-subscribed remote audio tracks
+            if (room) {
+                for (const p of room.remoteParticipants.values()) {
+                    for (const pub of p.audioTrackPublications.values()) {
+                        if (pub.track && pub.isSubscribed && pub.track.kind === 'audio') {
+                            const sid = pub.track.sid || pub.track.mediaStreamTrack?.id;
+                            if (sid && !remoteSourcesRef.current.has(sid)) {
+                                try {
+                                    const ms = new MediaStream([pub.track.mediaStreamTrack]);
+                                    const src = ctx.createMediaStreamSource(ms);
+                                    src.connect(dest);
+                                    remoteSourcesRef.current.set(sid, { source: src, stream: ms });
+                                } catch (_) {}
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 4. Record the mixed output
+            const mediaRecorder = new MediaRecorder(dest.stream, { mimeType: 'audio/webm' });
             audioChunksRef.current = [];
             mediaRecorder.ondataavailable = (e) => {
                 if (e.data.size > 0) audioChunksRef.current.push(e.data);
             };
             mediaRecorder.onstop = async () => {
-                stream.getTracks().forEach(t => t.stop());
+                // Cleanup audio graph
+                try { localSourceRef.current?.disconnect(); } catch (_) {}
+                for (const [, entry] of remoteSourcesRef.current) {
+                    try { entry.source.disconnect(); } catch (_) {}
+                }
+                remoteSourcesRef.current.clear();
+                localMicStreamRef.current?.getTracks().forEach(t => t.stop());
+                try { audioContextRef.current?.close(); } catch (_) {}
+                audioContextRef.current = null;
+                mixerDestinationRef.current = null;
+
+                // Upload the combined recording
                 if (audioChunksRef.current.length > 0) {
                     const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-                    // Upload recording
                     const formData = new FormData();
-                    formData.append('file', blob, 'recording-' + new Date().toISOString() + '.webm');
+                    formData.append('file', blob, 'session-recording-' + new Date().toISOString() + '.webm');
                     formData.append('courseId', courseId);
                     formData.append('sessionId', sessionId);
                     formData.append('type', 'RECORDING');
-                    formData.append('source', 'room_recording');
+                    formData.append('source', 'session_full_recording');
                     try {
                         await api.upload('/documents/upload', formData);
-                        console.log('[Room] Audio recording uploaded');
+                        console.log('[Recording] Full session audio uploaded');
                     } catch (err) {
-                        console.error('[Room] Audio upload failed:', err);
+                        console.error('[Recording] Audio upload failed:', err);
                     }
                 }
             };
             mediaRecorderRef.current = mediaRecorder;
             mediaRecorder.start(1000); // Chunk every 1s
             setIsRecording(true);
+            console.log('[Recording] Started — mixing local mic + remote audio');
         } catch (err) {
-            console.error('[Room] Recording failed:', err);
+            console.error('[Recording] Failed to start:', err);
             alert('Impossible d\'accéder au micro pour l\'enregistrement');
         }
     };
@@ -373,6 +474,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
             mediaRecorderRef.current.stop();
             setIsRecording(false);
+            console.log('[Recording] Stopped');
         }
     };
 
