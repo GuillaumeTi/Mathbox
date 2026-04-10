@@ -323,15 +323,23 @@ router.post('/confirm-credit-payment', authMiddleware, async (req, res) => {
             return res.status(400).json({ error: 'Invalid credit amount in payment metadata' });
         }
 
-        // Check if already processed (idempotency)
-        const existing = await prisma.aICredit.findFirst({
-            where: {
-                userId: req.user.id,
-                description: { contains: paymentIntentId },
-            },
-        });
-        if (existing) {
-            return res.json({ success: true, message: 'Already processed', credits: creditAmount });
+        // Check if already processed (idempotency) via PlatformTransaction
+        try {
+            await prisma.platformTransaction.create({
+                data: {
+                    profId: req.user.id,
+                    type: 'AI_CREDITS',
+                    amount: paymentIntent.amount / 100,
+                    description: `Achat de ${creditAmount} crédits IA`,
+                    stripeInvoiceId: paymentIntentId
+                }
+            });
+        } catch (err) {
+            // Prisma error P2002: Unique constraint failed
+            if (err.code === 'P2002') {
+                return res.json({ success: true, message: 'Already processed', credits: creditAmount });
+            }
+            throw err;
         }
 
         // Add credits

@@ -333,21 +333,8 @@ router.post('/stripe', async (req, res) => {
                 // AI Credit purchase
                 if (metadata.type === 'credits' && metadata.userId && metadata.credits) {
                     const creditAmount = parseInt(metadata.credits);
-                    await prisma.user.update({
-                        where: { id: metadata.userId },
-                        data: { credits: { increment: creditAmount } },
-                    });
-                    await prisma.aICredit.create({
-                        data: {
-                            amount: creditAmount,
-                            type: 'PURCHASE',
-                            description: `Achat de ${creditAmount} crédits IA`,
-                            userId: metadata.userId,
-                        },
-                    });
-                    console.log(`[Stripe Webhook] ${creditAmount} credits added for user ${metadata.userId}`);
 
-                    // Log PlatformTransaction for AI credit purchase
+                    // Idempotency check via PlatformTransaction
                     try {
                         await prisma.platformTransaction.create({
                             data: {
@@ -355,11 +342,33 @@ router.post('/stripe', async (req, res) => {
                                 type: 'AI_CREDITS',
                                 amount: paymentIntent.amount / 100,
                                 description: `Achat de ${creditAmount} crédits IA`,
+                                stripeInvoiceId: paymentIntent.id
                             }
                         });
                     } catch (txErr) {
+                        if (txErr.code === 'P2002') {
+                            console.log(`[Stripe Webhook] Credits already processed for ${paymentIntent.id}`);
+                            break; // Already processed
+                        }
                         console.error('[Stripe Webhook] PlatformTransaction (credits) error:', txErr);
+                        break;
                     }
+
+                    // Add credits if logic successfully acquired the lock
+                    await prisma.user.update({
+                        where: { id: metadata.userId },
+                        data: { credits: { increment: creditAmount } },
+                    });
+
+                    await prisma.aICredit.create({
+                        data: {
+                            amount: creditAmount,
+                            type: 'PURCHASE',
+                            description: `Achat de ${creditAmount} crédits IA (${paymentIntent.id})`,
+                            userId: metadata.userId,
+                        },
+                    });
+                    console.log(`[Stripe Webhook] ${creditAmount} credits added for user ${metadata.userId}`);
                 }
 
                 // Course invoice payment (marketplace)
