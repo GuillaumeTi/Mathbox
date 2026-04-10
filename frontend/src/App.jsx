@@ -14,6 +14,7 @@ import ProfAccount from './pages/ProfAccount';
 import InvitePage from './pages/InvitePage';
 import MagicLogin from './pages/MagicLogin';
 import AdminDashboard from './pages/AdminDashboard';
+import Contact from './pages/Contact';
 
 function getRoleHome(role) {
     if (role === 'PROFESSOR' || role === 'PROF') return '/dashboard';
@@ -49,6 +50,7 @@ export default function App() {
                 <Route path="/register" element={<AuthRedirect><Register /></AuthRedirect>} />
                 <Route path="/invite/:code" element={<InvitePage />} />
                 <Route path="/magic-login/:token" element={<MagicLogin />} />
+                <Route path="/contact" element={<Contact />} />
 
                 {/* Professor */}
                 <Route path="/dashboard" element={

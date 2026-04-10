@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
     Video, PenTool, Cloud, Brain, Check, ArrowRight,
-    ChevronRight, Sparkles, BookOpen, Users, Shield, Zap
+    ChevronRight, Sparkles, BookOpen, Users, Shield, Zap, MessageSquare
 } from 'lucide-react';
 
 const features = [
@@ -43,6 +43,9 @@ export default function Landing() {
                         <span className="text-xl font-bold gradient-text">MathBox</span>
                     </Link>
                     <div className="flex items-center gap-3">
+                        <Link to="/contact">
+                            <Button variant="ghost" size="sm"><MessageSquare className="w-4 h-4 mr-1.5" />Contact</Button>
+                        </Link>
                         <Link to="/login">
                             <Button variant="ghost" size="sm">Connexion</Button>
                         </Link>
@@ -234,7 +237,7 @@ export default function Landing() {
                     <div className="flex gap-6">
                         <a href="#" className="hover:text-foreground transition-colors">CGU</a>
                         <a href="#" className="hover:text-foreground transition-colors">Confidentialité</a>
-                        <a href="#" className="hover:text-foreground transition-colors">Contact</a>
+                        <Link to="/contact" className="hover:text-foreground transition-colors">Contact</Link>
                     </div>
                 </div>
             </footer>

@@ -51,6 +51,7 @@ app.use('/api/invoices', require('./routes/invoices'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/stripe', require('./routes/stripe'));
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/contact', require('./routes/contact'));
 
 // ============ SOCKET.IO ============
 io.on('connection', (socket) => {

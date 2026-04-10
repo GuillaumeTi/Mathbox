@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
     BookOpen, LogOut, FileText, User, Users, Brain, Plus, ChevronDown, ChevronRight,
-    Copy, Check, MapPin, CreditCard, CheckSquare, Calendar, Clock, AlertCircle, ExternalLink, Link2, Download
+    Copy, Check, MapPin, CreditCard, CheckSquare, Calendar, Clock, AlertCircle, ExternalLink, Link2, Download, MessageSquare
 } from 'lucide-react';
 import { io } from 'socket.io-client';
 
@@ -206,6 +206,11 @@ export default function ParentDashboard() {
                             <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
                         </div>
                     </div>
+                    <Link to="/contact">
+                        <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground">
+                            <MessageSquare className="w-4 h-4 mr-2" /> Contact
+                        </Button>
+                    </Link>
                     <Button variant="ghost" size="sm" className="w-full justify-start mt-1 text-muted-foreground" onClick={handleLogout}>
                         <LogOut className="w-4 h-4 mr-2" /> Déconnexion
                     </Button>

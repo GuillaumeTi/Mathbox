@@ -12,7 +12,7 @@ import {
     BookOpen, Plus, Video, Clock, Users, Brain, Bell,
     Copy, Trash2, LogOut, ShoppingBag, Cloud, ChevronRight,
     Calendar, BarChart3, ChevronDown, ChevronUp, MoreVertical, Edit, XCircle, RotateCcw, CheckSquare, Square, Archive,
-    AlertTriangle, Zap, Wallet, LayoutTemplate
+    AlertTriangle, Zap, Wallet, LayoutTemplate, MessageSquare
 } from 'lucide-react';
 import { io } from 'socket.io-client';
 import { api } from '@/lib/api';
@@ -317,6 +317,9 @@ export default function ProfDashboard() {
                         </Link>
                         <Link to="/shop">
                             <Button variant="ghost" size="sm"><ShoppingBag className="w-4 h-4 mr-1.5" />Boutique</Button>
+                        </Link>
+                        <Link to="/contact">
+                            <Button variant="ghost" size="sm"><MessageSquare className="w-4 h-4 mr-1.5" />Contact</Button>
                         </Link>
                         <Button variant="ghost" size="sm" onClick={handleLogout}>
                             <LogOut className="w-4 h-4 mr-1.5" />Déconnexion
