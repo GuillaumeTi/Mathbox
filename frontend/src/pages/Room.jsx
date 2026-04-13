@@ -1641,7 +1641,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                     ))}
                     {textInput && !textInput.mathMode && (
                         <div key={`text-${textInput.id}`} className="absolute z-50 group" style={{ left: textInput.x, top: textInput.y }} onPointerDown={e => e.stopPropagation()}>
-                            <div className="relative flex flex-col" style={{ transform: 'translateY(-100%)' }}>
+                            <div className="relative flex flex-col">
                                 <div className="absolute bottom-full left-0 bg-primary/50 hover:bg-primary opacity-0 group-hover:opacity-100 transition-opacity cursor-move flex items-center justify-center rounded-t-md py-0.5 shadow-sm w-full"
                                     onPointerDown={e => { e.stopPropagation(); dragStartRef.current = { type: 'text-move', startX: e.clientX, startY: e.clientY, startXCoord: textInput.x, startYCoord: textInput.y }; }}>
                                     <Grid3X3 className="w-4 h-4 text-white" />
