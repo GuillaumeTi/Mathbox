@@ -1459,31 +1459,48 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
 
     useEffect(() => {
         const handleWinMove = (e) => {
-            if (!floatingImage || !dragStartRef.current) return;
+            if (!dragStartRef.current) return;
             const drag = dragStartRef.current;
-            if (drag.type === 'move') {
+            if (drag.type === 'move' && floatingImage) {
                 const dx = (e.clientX - drag.startX) / scale;
                 const dy = (e.clientY - drag.startY) / scale;
                 setFloatingImage(prev => ({ ...prev, x: drag.imgX + dx, y: drag.imgY + dy }));
-            } else if (drag.type === 'resize') {
+            } else if (drag.type === 'resize' && floatingImage) {
                 const dx = (e.clientX - drag.startX) / scale;
                 const dy = (e.clientY - drag.startY) / scale;
                 const ratio = drag.startW / drag.startH;
                 const newW = Math.max(50, drag.startW + Math.max(dx, dy));
                 setFloatingImage(prev => ({ ...prev, w: newW, h: newW / ratio }));
+            } else if (drag.type === 'text-move') {
+                const dx = (e.clientX - drag.startX) / scale;
+                const dy = (e.clientY - drag.startY) / scale;
+                setTextInput(prev => {
+                    if (!prev) return prev;
+                    const next = { ...prev, x: drag.startXCoord + dx, y: drag.startYCoord + dy };
+                    sendData({ type: 'text-live', x1: next.x, y1: next.y, text: textRef.current?.value || '', color: next.color, thickness, mathMode: next.mathMode });
+                    return next;
+                });
             }
         };
         const handleWinUp = () => { if (dragStartRef.current) dragStartRef.current = null; };
 
-        if (floatingImage) {
-            window.addEventListener('pointermove', handleWinMove);
-            window.addEventListener('pointerup', handleWinUp);
-        }
+        // Attach globally while using drag functionalities
+        window.addEventListener('pointermove', handleWinMove);
+        window.addEventListener('pointerup', handleWinUp);
         return () => {
             window.removeEventListener('pointermove', handleWinMove);
             window.removeEventListener('pointerup', handleWinUp);
         };
-    }, [floatingImage, scale]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [floatingImage, scale, thickness]);
+
+    // Resize text dynamically when thickness changes in toolbar
+    useEffect(() => {
+        if (textInput) {
+            sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: textRef.current?.value || '', color: textInput.color, thickness, mathMode: textInput.mathMode });
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [thickness]);
 
     return (
         <div className="h-full flex">
@@ -1639,29 +1656,45 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                         />
                     ))}
                     {textInput && !textInput.mathMode && (
-                        <textarea key={`text-${textInput.x}-${textInput.y}`} ref={textRef} className="absolute z-50 bg-white/50 outline-none resize-none overflow-hidden" style={{ left: textInput.x, top: textInput.y, transform: 'translateY(-100%)', color: textInput.color, fontSize: `${textInput.thickness * 6}px`, fontFamily: 'Inter, sans-serif', minWidth: '20px', lineHeight: 1.2, border: '1px dashed #666' }}
-                            autoFocus onKeyDown={e => {
-                                if (e.key === 'Escape') setTextInput(null);
-                                else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.blur(); }
-                                e.stopPropagation();
-                            }} onPointerDown={e => e.stopPropagation()}
-                            onChange={e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: e.target.value, color: textInput.color, thickness: textInput.thickness }); }}
-                            onBlur={e => { if (e.target.value.trim()) { const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: e.target.value, textType: 'STANDARD', rawText: e.target.value }; applyDrawing(drawData); sendData(drawData); } setTextInput(null); }}
-                        />
+                        <div key={`text-${textInput.x}-${textInput.y}`} className="absolute z-50 group flex flex-col" style={{ left: textInput.x, top: textInput.y, transform: 'translateY(-100%)' }} onPointerDown={e => e.stopPropagation()}>
+                            <div className="bg-primary/50 hover:bg-primary opacity-0 group-hover:opacity-100 transition-opacity cursor-move flex items-center justify-center rounded-t-md py-0.5 shadow-sm w-full"
+                                 onPointerDown={e => { e.stopPropagation(); dragStartRef.current = { type: 'text-move', startX: e.clientX, startY: e.clientY, startXCoord: textInput.x, startYCoord: textInput.y }; }}>
+                                <Grid3X3 className="w-4 h-4 text-white" />
+                            </div>
+                            <textarea ref={textRef} className="bg-white/50 outline-none resize-none overflow-hidden rounded-b-md" style={{ color: textInput.color, fontSize: `${thickness * 6}px`, fontFamily: 'Inter, sans-serif', minWidth: '20px', lineHeight: 1.2, border: '1px dashed #666' }}
+                                autoFocus onKeyDown={e => {
+                                    if (e.key === 'Escape') setTextInput(null);
+                                    else if (e.key === 'Enter' && !e.shiftKey) { 
+                                        e.preventDefault(); 
+                                        e.target.blur();
+                                        if (e.target.value.trim()) { 
+                                            const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness, text: e.target.value, textType: 'STANDARD', rawText: e.target.value }; 
+                                            applyDrawing(drawData); sendData(drawData); 
+                                        } 
+                                        setTextInput(null); 
+                                    }
+                                    e.stopPropagation();
+                                }} 
+                                onChange={e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: e.target.value, color: textInput.color, thickness }); }}
+                            />
+                        </div>
                     )}
-                    {/* Math (LaTeX) dual overlay: textarea + live preview */}
                     {textInput && textInput.mathMode && (
                         <div
                             key={`math-${textInput.x}-${textInput.y}`}
-                            className="absolute z-50 flex flex-col gap-1"
+                            className="absolute z-50 flex flex-col group"
                             style={{ left: textInput.x, top: textInput.y, transform: 'translateY(-100%)' }}
                             onPointerDown={e => e.stopPropagation()}
                         >
+                            <div className="bg-primary/50 hover:bg-primary opacity-0 group-hover:opacity-100 transition-opacity cursor-move flex items-center justify-center rounded-t-md py-0.5 shadow-sm w-full"
+                                 onPointerDown={e => { e.stopPropagation(); dragStartRef.current = { type: 'text-move', startX: e.clientX, startY: e.clientY, startXCoord: textInput.x, startYCoord: textInput.y }; }}>
+                                <Grid3X3 className="w-4 h-4 text-white" />
+                            </div>
                             {/* Live KaTeX preview */}
                             <div
                                 ref={mathPreviewRef}
-                                className="min-h-[30px] px-3 py-2 rounded-t-lg bg-white border border-b-0 border-gray-300 shadow-sm pointer-events-none select-none"
-                                style={{ fontSize: `${textInput.thickness * 6}px`, color: textInput.color, minWidth: '120px' }}
+                                className="min-h-[30px] px-3 py-2 bg-white border border-b-0 border-gray-300 shadow-sm pointer-events-none select-none"
+                                style={{ fontSize: `${thickness * 6}px`, color: textInput.color, minWidth: '120px' }}
                             >
                                 <span style={{ color: '#999' }}>Aperçu LaTeX...</span>
                             </div>
@@ -1678,9 +1711,9 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                                         e.preventDefault();
                                         const val = textRef.current?.value;
                                         if (val && val.trim()) {
-                                            const mathObj = { id: genId(), x: textInput.x, y: textInput.y, rawText: val, color: textInput.color, thickness: textInput.thickness };
+                                            const mathObj = { id: genId(), x: textInput.x, y: textInput.y, rawText: val, color: textInput.color, thickness };
                                             setLocalMathObjects(prev => { const next = [...prev, mathObj]; onMathObjectsChange(activeTabId, next); return next; });
-                                            sendData({ type: 'text-commit', tool: 'math', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val, textType: 'MATH', rawText: val });
+                                            sendData({ type: 'text-commit', tool: 'math', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness, text: val, textType: 'MATH', rawText: val });
                                         }
                                         setTextInput(null);
                                     }
@@ -1694,16 +1727,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                                         const raw = e.target.value;
                                         mathPreviewRef.current.innerHTML = raw.trim() ? renderKatexPreview(raw) : '<span style="color:#999;">Aperçu LaTeX...</span>';
                                     }
-                                    sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: e.target.value, color: textInput.color, thickness: textInput.thickness, mathMode: true });
-                                }}
-                                onBlur={e => {
-                                    const val = e.target.value;
-                                    if (val && val.trim()) {
-                                        const mathObj = { id: genId(), x: textInput.x, y: textInput.y, rawText: val, color: textInput.color, thickness: textInput.thickness };
-                                        setLocalMathObjects(prev => { const next = [...prev, mathObj]; onMathObjectsChange(activeTabId, next); return next; });
-                                        sendData({ type: 'text-commit', tool: 'math', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val, textType: 'MATH', rawText: val });
-                                    }
-                                    setTextInput(null);
+                                    sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: e.target.value, color: textInput.color, thickness, mathMode: true });
                                 }}
                             />
                         </div>
