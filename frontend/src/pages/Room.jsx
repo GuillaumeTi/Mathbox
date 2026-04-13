@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
@@ -22,6 +22,8 @@ import {
 import { useSearchParams } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 
 const genId = () => Math.random().toString(36).substring(2, 10);
 const makeTab = (n, id = null) => ({ id: id || genId(), title: `Board ${n}`, canvasData: null, background: 'white', images: [] });
@@ -58,10 +60,39 @@ const TOOLS = [
     { id: 'rect', icon: Square, label: 'Rectangle' },
     { id: 'circle', icon: Circle, label: 'Cercle' },
     { id: 'triangle', icon: Triangle, label: 'Triangle' },
-    { id: 'text', icon: Type, label: 'Texte' },
+    { id: 'text', icon: Type, label: 'Texte', hasSubMenu: true },
     { id: 'imgselect', icon: MousePointer2, label: 'Sél. image' },
     { id: 'image', icon: ImagePlus, label: 'Image' },
 ];
+
+// Helper: render KaTeX to SVG data URL for canvas stamping
+function katexToSvgDataUrl(latex, fontSize = 20, color = '#000000') {
+    const html = katex.renderToString(latex, {
+        throwOnError: false,
+        displayMode: true,
+        output: 'html',
+    });
+    // We embed the KaTeX CSS inline so the foreignObject renders correctly
+    const svgContent = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="2000" height="600">
+            <foreignObject width="2000" height="600">
+                <div xmlns="http://www.w3.org/1999/xhtml" style="font-size:${fontSize}px;color:${color};font-family:'KaTeX_Main','Times New Roman',serif;display:inline-block;white-space:nowrap;">
+                    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.45/dist/katex.min.css" />
+                    ${html}
+                </div>
+            </foreignObject>
+        </svg>`;
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgContent);
+}
+
+// Render KaTeX string for live preview (safe)
+function renderKatexPreview(latex) {
+    try {
+        return katex.renderToString(latex, { throwOnError: false, displayMode: true, output: 'html' });
+    } catch {
+        return '<span style="color:red;">Erreur de syntaxe</span>';
+    }
+}
 
 // Virtual canvas dimensions — large fixed size for infinite-feeling board
 const CANVAS_W = 4000;
@@ -1059,6 +1090,10 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
     const lastPoint = useRef(null);
     const shapeStartRef = useRef(null);
 
+    // Text sub-tool: 'text' (standard) or 'math' (LaTeX)
+    const [textSubTool, setTextSubTool] = useState('text');
+    const [textSubMenu, setTextSubMenu] = useState(false);
+
     // Zoom / pan state
     const [scale, setScale] = useState(1);
     const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -1069,6 +1104,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
     const [remoteText, setRemoteText] = useState(null);
     const [textInput, setTextInput] = useState(null);
     const textRef = useRef(null);
+    const mathPreviewRef = useRef(null);
     const imageInputRef = useRef(null);
     const [cursorPos, setCursorPos] = useState(null);
     const [floatingImage, setFloatingImage] = useState(null);
@@ -1160,7 +1196,26 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
         if (data.tool === 'pen') { ctx.globalCompositeOperation = 'source-over'; ctx.beginPath(); ctx.strokeStyle = data.color; ctx.lineWidth = data.thickness; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.moveTo(data.x1, data.y1); ctx.lineTo(data.x2, data.y2); ctx.stroke(); }
         else if (data.tool === 'eraser') { ctx.globalCompositeOperation = 'destination-out'; ctx.beginPath(); ctx.lineWidth = data.thickness; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.moveTo(data.x1, data.y1); ctx.lineTo(data.x2, data.y2); ctx.stroke(); }
         else if (['line', 'rect', 'circle', 'triangle'].includes(data.tool)) { ctx.globalCompositeOperation = 'source-over'; drawShape(ctx, data.tool, data.x1, data.y1, data.x2, data.y2, data.color, data.thickness); }
-        else if (data.tool === 'text') { ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = data.color; ctx.font = `${data.thickness * 6}px Inter, sans-serif`; const lines = data.text.split('\n'); const lineHeight = data.thickness * 6 * 1.2; lines.forEach((line, i) => { ctx.fillText(line, data.x1, data.y1 + (i * lineHeight) + (data.thickness * 6)); }); }
+        else if (data.tool === 'text') {
+            ctx.globalCompositeOperation = 'source-over';
+            // Standard text rendering
+            ctx.fillStyle = data.color;
+            ctx.font = `${data.thickness * 6}px Inter, sans-serif`;
+            const lines = data.text.split('\n');
+            const lineHeight = data.thickness * 6 * 1.2;
+            lines.forEach((line, i) => { ctx.fillText(line, data.x1, data.y1 + (i * lineHeight) + (data.thickness * 6)); });
+        }
+        else if (data.tool === 'math') {
+            // Math/LaTeX: stamp SVG onto canvas
+            ctx.globalCompositeOperation = 'source-over';
+            const fontSize = data.thickness * 6;
+            const svgUrl = katexToSvgDataUrl(data.text, fontSize, data.color);
+            const img = new Image();
+            img.onload = () => {
+                ctx.drawImage(img, data.x1, data.y1);
+            };
+            img.src = svgUrl;
+        }
         ctx.restore();
     };
 
@@ -1251,6 +1306,14 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
     // Text focus fix
     useEffect(() => { if (textInput && textRef.current) setTimeout(() => textRef.current?.focus(), 10); }, [textInput]);
 
+    // Live KaTeX preview update
+    useEffect(() => {
+        if (textInput && textInput.mathMode && mathPreviewRef.current && textRef.current) {
+            const raw = textRef.current.value || '';
+            mathPreviewRef.current.innerHTML = raw.trim() ? renderKatexPreview(raw) : '<span style="color:#999;">Aperçu LaTeX...</span>';
+        }
+    });
+
     const onPointerDown = (e) => {
         if (locked) return;
         const pos = getPos(e);
@@ -1262,19 +1325,21 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
             return;
         }
 
-        if (textInput && tool !== 'text') {
+        if (textInput && tool !== 'text' && tool !== 'math') {
             const val = textRef.current?.value;
-            if (val) { const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val }; applyDrawing(drawData); sendData(drawData); }
+            const commitTool = textInput.mathMode ? 'math' : 'text';
+            if (val && val.trim()) { const drawData = { type: 'text-commit', tool: commitTool, x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val, textType: textInput.mathMode ? 'MATH' : 'STANDARD', rawText: val }; applyDrawing(drawData); sendData(drawData); }
             setTextInput(null);
         }
 
-        if (tool === 'text') {
+        if (tool === 'text' || tool === 'math') {
             e.preventDefault();
             if (textInput) {
                 const val = textRef.current?.value;
-                if (val && val.trim()) { const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val }; applyDrawing(drawData); sendData(drawData); }
+                const commitTool = textInput.mathMode ? 'math' : 'text';
+                if (val && val.trim()) { const drawData = { type: 'text-commit', tool: commitTool, x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val, textType: textInput.mathMode ? 'MATH' : 'STANDARD', rawText: val }; applyDrawing(drawData); sendData(drawData); }
             }
-            setTextInput({ x: pos.x, y: pos.y, color, thickness });
+            setTextInput({ x: pos.x, y: pos.y, color, thickness, mathMode: tool === 'math' });
             return;
         }
 
@@ -1413,8 +1478,50 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
             <div className="w-14 bg-gray-100 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col items-center py-3 gap-1 shrink-0 z-20">
                 {TOOLS.map(t => {
                     if (t.id === 'image' && !isProf) return null;
+                    // Text tool with sub-menu (text / math)
+                    if (t.hasSubMenu) {
+                        const isTextActive = tool === 'text' || tool === 'math';
+                        return (
+                            <div key={t.id} className="relative">
+                                <button
+                                    onClick={() => {
+                                        if (isTextActive) {
+                                            setTextSubMenu(prev => !prev);
+                                        } else {
+                                            setTool(textSubTool);
+                                            setTextSubMenu(false);
+                                        }
+                                    }}
+                                    className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${isTextActive ? 'bg-primary text-white shadow' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800'}`}
+                                >
+                                    {textSubTool === 'math'
+                                        ? <span className="text-lg font-bold" style={{ fontFamily: 'serif' }}>Σ</span>
+                                        : <Type className="w-5 h-5" />
+                                    }
+                                </button>
+                                {textSubMenu && (
+                                    <div className="absolute left-12 top-0 z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl p-1 flex flex-col gap-0.5 min-w-[140px]">
+                                        <button
+                                            onClick={() => { setTextSubTool('text'); setTool('text'); setTextSubMenu(false); }}
+                                            className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors ${textSubTool === 'text' ? 'bg-primary/10 text-primary font-medium' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+                                        >
+                                            <Type className="w-4 h-4" />
+                                            Texte
+                                        </button>
+                                        <button
+                                            onClick={() => { setTextSubTool('math'); setTool('math'); setTextSubMenu(false); }}
+                                            className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors ${textSubTool === 'math' ? 'bg-primary/10 text-primary font-medium' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+                                        >
+                                            <span className="text-base font-bold" style={{ fontFamily: 'serif' }}>Σ</span>
+                                            Math (LaTeX)
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    }
                     return (
-                        <button key={t.id} onClick={() => { setTool(t.id); if (t.id === 'image') setShowSourceModal(true); }} className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${tool === t.id ? 'bg-primary text-white shadow' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800'}`}>
+                        <button key={t.id} onClick={() => { setTool(t.id); setTextSubMenu(false); if (t.id === 'image') setShowSourceModal(true); }} className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${tool === t.id ? 'bg-primary text-white shadow' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800'}`}>
                             <t.icon className="w-5 h-5" />
                         </button>
                     );
@@ -1518,16 +1625,75 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                             style={{ left: im.x, top: im.y, width: im.w, height: im.h }} 
                         />
                     ))}
-                    {textInput && (
-                        <textarea key={`${textInput.x}-${textInput.y}`} ref={textRef} className="absolute z-50 bg-white/50 outline-none resize-none overflow-hidden" style={{ left: textInput.x, top: textInput.y, color: textInput.color, fontSize: `${textInput.thickness * 6}px`, fontFamily: 'Inter, sans-serif', minWidth: '20px', lineHeight: 1.2, border: '1px dashed #666' }}
-                            autoFocus onKeyDown={e => { 
-                                if (e.key === 'Escape') setTextInput(null); 
-                                else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.blur(); } 
-                                e.stopPropagation(); 
+                    {textInput && !textInput.mathMode && (
+                        <textarea key={`text-${textInput.x}-${textInput.y}`} ref={textRef} className="absolute z-50 bg-white/50 outline-none resize-none overflow-hidden" style={{ left: textInput.x, top: textInput.y, color: textInput.color, fontSize: `${textInput.thickness * 6}px`, fontFamily: 'Inter, sans-serif', minWidth: '20px', lineHeight: 1.2, border: '1px dashed #666' }}
+                            autoFocus onKeyDown={e => {
+                                if (e.key === 'Escape') setTextInput(null);
+                                else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.blur(); }
+                                e.stopPropagation();
                             }} onPointerDown={e => e.stopPropagation()}
                             onChange={e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: e.target.value, color: textInput.color, thickness: textInput.thickness }); }}
-                            onBlur={e => { if (e.target.value.trim()) { const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: e.target.value }; applyDrawing(drawData); sendData(drawData); } setTextInput(null); }}
+                            onBlur={e => { if (e.target.value.trim()) { const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: e.target.value, textType: 'STANDARD', rawText: e.target.value }; applyDrawing(drawData); sendData(drawData); } setTextInput(null); }}
                         />
+                    )}
+                    {/* Math (LaTeX) dual overlay: textarea + live preview */}
+                    {textInput && textInput.mathMode && (
+                        <div
+                            key={`math-${textInput.x}-${textInput.y}`}
+                            className="absolute z-50 flex flex-col gap-1"
+                            style={{ left: textInput.x, top: textInput.y }}
+                            onPointerDown={e => e.stopPropagation()}
+                        >
+                            {/* Live KaTeX preview */}
+                            <div
+                                ref={mathPreviewRef}
+                                className="min-h-[30px] px-3 py-2 rounded-t-lg bg-white border border-b-0 border-gray-300 shadow-sm pointer-events-none select-none"
+                                style={{ fontSize: `${textInput.thickness * 6}px`, color: textInput.color, minWidth: '120px' }}
+                            >
+                                <span style={{ color: '#999' }}>Aperçu LaTeX...</span>
+                            </div>
+                            {/* Raw LaTeX input */}
+                            <textarea
+                                ref={textRef}
+                                autoFocus
+                                className="bg-gray-50 outline-none resize-none overflow-hidden px-3 py-2 rounded-b-lg border border-gray-300 shadow-sm font-mono text-sm"
+                                style={{ minWidth: '200px', minHeight: '36px', color: '#333' }}
+                                placeholder="\\frac{a}{b}, \\sqrt{x}, ..."
+                                onKeyDown={e => {
+                                    if (e.key === 'Escape') { setTextInput(null); }
+                                    else if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        const val = textRef.current?.value;
+                                        if (val && val.trim()) {
+                                            const drawData = { type: 'text-commit', tool: 'math', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val, textType: 'MATH', rawText: val };
+                                            applyDrawing(drawData);
+                                            sendData(drawData);
+                                        }
+                                        setTextInput(null);
+                                    }
+                                    e.stopPropagation();
+                                }}
+                                onChange={e => {
+                                    e.target.style.height = 'auto';
+                                    e.target.style.height = e.target.scrollHeight + 'px';
+                                    // Update live preview
+                                    if (mathPreviewRef.current) {
+                                        const raw = e.target.value;
+                                        mathPreviewRef.current.innerHTML = raw.trim() ? renderKatexPreview(raw) : '<span style="color:#999;">Aperçu LaTeX...</span>';
+                                    }
+                                    sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: e.target.value, color: textInput.color, thickness: textInput.thickness, mathMode: true });
+                                }}
+                                onBlur={e => {
+                                    const val = e.target.value;
+                                    if (val && val.trim()) {
+                                        const drawData = { type: 'text-commit', tool: 'math', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val, textType: 'MATH', rawText: val };
+                                        applyDrawing(drawData);
+                                        sendData(drawData);
+                                    }
+                                    setTextInput(null);
+                                }}
+                            />
+                        </div>
                     )}
                     
                     {remoteText && <span className="absolute pointer-events-none z-30 whitespace-pre" style={{ left: remoteText.x, top: remoteText.y, color: remoteText.color, fontSize: `${remoteText.size}px`, fontFamily: 'Inter, sans-serif', lineHeight: 1.2, textShadow: '0 0 2px white' }}>{remoteText.text}</span>}
