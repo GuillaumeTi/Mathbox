@@ -24,6 +24,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
+import katexCSSRaw from 'katex/dist/katex.min.css?raw';
 
 const genId = () => Math.random().toString(36).substring(2, 10);
 const makeTab = (n, id = null) => ({ id: id || genId(), title: `Board ${n}`, canvasData: null, background: 'white', images: [] });
@@ -65,24 +66,32 @@ const TOOLS = [
     { id: 'image', icon: ImagePlus, label: 'Image' },
 ];
 
-// Helper: render KaTeX to SVG data URL for canvas stamping
+// Strip @font-face rules from KaTeX CSS (fonts can't load inside SVG data URLs)
+// and override all font-family references to use system serif fonts as fallbacks
+const katexCSSInline = katexCSSRaw
+    .replace(/@font-face\s*\{[^}]*\}/g, '')
+    + '\n.katex, .katex .mathnormal, .katex .mathit, .katex .mathrm, .katex .mathbf, .katex .mathbb, .katex .mathcal, .katex .mathfrak, .katex .mathscr, .katex .mathsf, .katex .mathtt { font-family: "Times New Roman", "Cambria Math", "STIX Two Math", serif !important; }'
+    + '\n.katex .mord, .katex .mopen, .katex .mclose, .katex .mpunct, .katex .mrel, .katex .mop, .katex .mbin, .katex .minner { font-family: "Times New Roman", "Cambria Math", serif !important; }';
+
+// Helper: render KaTeX to SVG data URL for canvas stamping (with inline CSS)
 function katexToSvgDataUrl(latex, fontSize = 20, color = '#000000') {
     const html = katex.renderToString(latex, {
         throwOnError: false,
         displayMode: true,
         output: 'html',
     });
-    // We embed the KaTeX CSS inline so the foreignObject renders correctly
-    const svgContent = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="2000" height="600">
-            <foreignObject width="2000" height="600">
-                <div xmlns="http://www.w3.org/1999/xhtml" style="font-size:${fontSize}px;color:${color};font-family:'KaTeX_Main','Times New Roman',serif;display:inline-block;white-space:nowrap;">
-                    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.45/dist/katex.min.css" />
-                    ${html}
-                </div>
-            </foreignObject>
-        </svg>`;
-    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgContent);
+    const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="2000" height="600">
+  <foreignObject width="100%" height="100%">
+    <div xmlns="http://www.w3.org/1999/xhtml">
+      <style>${katexCSSInline}</style>
+      <div style="font-size:${fontSize}px;color:${color};font-family:'Times New Roman','Cambria Math',serif;display:inline-block;padding:4px;">
+        ${html}
+      </div>
+    </div>
+  </foreignObject>
+</svg>`;
+    const blob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
+    return URL.createObjectURL(blob);
 }
 
 // Render KaTeX string for live preview (safe)
@@ -1206,15 +1215,19 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
             lines.forEach((line, i) => { ctx.fillText(line, data.x1, data.y1 + (i * lineHeight) + (data.thickness * 6)); });
         }
         else if (data.tool === 'math') {
-            // Math/LaTeX: stamp SVG onto canvas
-            ctx.globalCompositeOperation = 'source-over';
+            // Math/LaTeX: stamp SVG onto canvas with inline CSS
             const fontSize = data.thickness * 6;
-            const svgUrl = katexToSvgDataUrl(data.text, fontSize, data.color);
+            const blobUrl = katexToSvgDataUrl(data.text, fontSize, data.color);
             const img = new Image();
             img.onload = () => {
-                ctx.drawImage(img, data.x1, data.y1);
+                const c = canvasRef.current;
+                if (!c) return;
+                const cx = c.getContext('2d');
+                cx.drawImage(img, data.x1, data.y1);
+                URL.revokeObjectURL(blobUrl);
             };
-            img.src = svgUrl;
+            img.onerror = () => URL.revokeObjectURL(blobUrl);
+            img.src = blobUrl;
         }
         ctx.restore();
     };
