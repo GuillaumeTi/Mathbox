@@ -286,6 +286,13 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
         saveTimerRef.current = setTimeout(() => saveWhiteboard(), 2000);
     }, [saveWhiteboard, isProf]);
 
+    // Periodic auto-save every 30s (lightens the final save on leave)
+    useEffect(() => {
+        if (!isProf) return;
+        const interval = setInterval(() => saveWhiteboard(), 30000);
+        return () => clearInterval(interval);
+    }, [isProf, saveWhiteboard]);
+
     // Save on leave
     const handleLeave = useCallback(async () => {
         if (isProf) {
@@ -1189,7 +1196,9 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
             ctx.font = `${data.thickness * 6}px Inter, sans-serif`;
             const lines = data.text.split('\n');
             const lineHeight = data.thickness * 6 * 1.2;
-            lines.forEach((line, i) => { ctx.fillText(line, data.x1, data.y1 + (i * lineHeight) + (data.thickness * 6)); });
+            // Bottom-left anchor: last line baseline sits at click point (data.y1)
+            const totalHeight = lines.length * lineHeight;
+            lines.forEach((line, i) => { ctx.fillText(line, data.x1, data.y1 - totalHeight + (i * lineHeight) + (data.thickness * 6)); });
         }
         else if (data.tool === 'math') {
             // Math is rendered as DOM overlay, not on canvas — see localMathObjects
@@ -1630,7 +1639,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                         />
                     ))}
                     {textInput && !textInput.mathMode && (
-                        <textarea key={`text-${textInput.x}-${textInput.y}`} ref={textRef} className="absolute z-50 bg-white/50 outline-none resize-none overflow-hidden" style={{ left: textInput.x, top: textInput.y, color: textInput.color, fontSize: `${textInput.thickness * 6}px`, fontFamily: 'Inter, sans-serif', minWidth: '20px', lineHeight: 1.2, border: '1px dashed #666' }}
+                        <textarea key={`text-${textInput.x}-${textInput.y}`} ref={textRef} className="absolute z-50 bg-white/50 outline-none resize-none overflow-hidden" style={{ left: textInput.x, top: textInput.y, transform: 'translateY(-100%)', color: textInput.color, fontSize: `${textInput.thickness * 6}px`, fontFamily: 'Inter, sans-serif', minWidth: '20px', lineHeight: 1.2, border: '1px dashed #666' }}
                             autoFocus onKeyDown={e => {
                                 if (e.key === 'Escape') setTextInput(null);
                                 else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.blur(); }
@@ -1645,7 +1654,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                         <div
                             key={`math-${textInput.x}-${textInput.y}`}
                             className="absolute z-50 flex flex-col gap-1"
-                            style={{ left: textInput.x, top: textInput.y }}
+                            style={{ left: textInput.x, top: textInput.y, transform: 'translateY(-100%)' }}
                             onPointerDown={e => e.stopPropagation()}
                         >
                             {/* Live KaTeX preview */}
@@ -1705,7 +1714,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                         <div
                             key={mo.id}
                             className="absolute pointer-events-none z-16 select-none"
-                            style={{ left: mo.x, top: mo.y, fontSize: `${(mo.thickness || 3) * 6}px`, color: mo.color || '#000' }}
+                            style={{ left: mo.x, top: mo.y, transform: 'translateY(-100%)', fontSize: `${(mo.thickness || 3) * 6}px`, color: mo.color || '#000' }}
                             dangerouslySetInnerHTML={{ __html: renderKatexPreview(mo.rawText) }}
                         />
                     ))}
