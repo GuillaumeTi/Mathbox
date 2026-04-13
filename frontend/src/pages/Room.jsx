@@ -1323,34 +1323,14 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
         }
 
         if (textInput && tool !== 'text' && tool !== 'math') {
-            const val = textRef.current?.value;
-            if (val && val.trim()) {
-                if (textInput.mathMode) {
-                    const mathObj = { id: genId(), x: textInput.x, y: textInput.y, rawText: val, color: textInput.color, thickness: textInput.thickness };
-                    setLocalMathObjects(prev => { const next = [...prev, mathObj]; onMathObjectsChange(activeTabId, next); return next; });
-                    sendData({ type: 'text-commit', tool: 'math', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val, textType: 'MATH', rawText: val });
-                } else {
-                    const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val, textType: 'STANDARD', rawText: val };
-                    applyDrawing(drawData); sendData(drawData);
-                }
-            }
+            sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: '', color: textInput.color, thickness: textInput.thickness, mathMode: textInput.mathMode });
             setTextInput(null);
         }
 
         if (tool === 'text' || tool === 'math') {
             e.preventDefault();
             if (textInput) {
-                const val = textRef.current?.value;
-                if (val && val.trim()) {
-                    if (textInput.mathMode) {
-                        const mathObj = { id: genId(), x: textInput.x, y: textInput.y, rawText: val, color: textInput.color, thickness: textInput.thickness };
-                        setLocalMathObjects(prev => { const next = [...prev, mathObj]; onMathObjectsChange(activeTabId, next); return next; });
-                        sendData({ type: 'text-commit', tool: 'math', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val, textType: 'MATH', rawText: val });
-                    } else {
-                        const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val, textType: 'STANDARD', rawText: val };
-                        applyDrawing(drawData); sendData(drawData);
-                    }
-                }
+                sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: '', color: textInput.color, thickness: textInput.thickness, mathMode: textInput.mathMode });
             }
             setTextInput({ id: genId(), x: pos.x, y: pos.y, color, thickness, mathMode: tool === 'math' });
             return;
@@ -1660,12 +1640,13 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                         />
                     ))}
                     {textInput && !textInput.mathMode && (
-                        <div key={`text-${textInput.id}`} className="absolute z-50 group flex flex-col" style={{ left: textInput.x, top: textInput.y, transform: 'translateY(-100%)' }} onPointerDown={e => e.stopPropagation()}>
-                            <div className="bg-primary/50 hover:bg-primary opacity-0 group-hover:opacity-100 transition-opacity cursor-move flex items-center justify-center rounded-t-md py-0.5 shadow-sm w-full"
-                                 onPointerDown={e => { e.stopPropagation(); dragStartRef.current = { type: 'text-move', startX: e.clientX, startY: e.clientY, startXCoord: textInput.x, startYCoord: textInput.y }; }}>
-                                <Grid3X3 className="w-4 h-4 text-white" />
-                            </div>
-                            <textarea ref={textRef} className="bg-white/50 outline-none resize-none overflow-hidden rounded-b-md" style={{ color: textInput.color, fontSize: `${thickness * 6}px`, fontFamily: 'Inter, sans-serif', minWidth: '20px', lineHeight: 1.2, border: '1px dashed #666' }}
+                        <div key={`text-${textInput.id}`} className="absolute z-50 group" style={{ left: textInput.x, top: textInput.y }} onPointerDown={e => e.stopPropagation()}>
+                            <div className="relative flex flex-col" style={{ transform: 'translateY(-100%)' }}>
+                                <div className="absolute bottom-full left-0 bg-primary/50 hover:bg-primary opacity-0 group-hover:opacity-100 transition-opacity cursor-move flex items-center justify-center rounded-t-md py-0.5 shadow-sm w-full"
+                                    onPointerDown={e => { e.stopPropagation(); dragStartRef.current = { type: 'text-move', startX: e.clientX, startY: e.clientY, startXCoord: textInput.x, startYCoord: textInput.y }; }}>
+                                    <Grid3X3 className="w-4 h-4 text-white" />
+                                </div>
+                                <textarea ref={textRef} className="bg-transparent outline-none resize-none overflow-hidden" style={{ padding: 0, margin: 0, color: textInput.color, fontSize: `${thickness * 6}px`, fontFamily: 'Inter, sans-serif', minWidth: '40px', lineHeight: 1.2, border: '1px dashed #999', boxSizing: 'border-box' }}
                                 autoFocus onKeyDown={e => {
                                     if (e.key === 'Escape') setTextInput(null);
                                     else if (e.key === 'Enter' && !e.shiftKey) { 
@@ -1681,32 +1662,35 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                                 }} 
                                 onChange={e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: e.target.value, color: textInput.color, thickness }); }}
                             />
+                            </div>
                         </div>
                     )}
                     {textInput && textInput.mathMode && (
                         <div
                             key={`math-${textInput.id}`}
-                            className="absolute z-50 flex flex-col group"
-                            style={{ left: textInput.x, top: textInput.y, transform: 'translateY(-100%)' }}
+                            className="absolute z-50 group"
+                            style={{ left: textInput.x, top: textInput.y }}
                             onPointerDown={e => e.stopPropagation()}
                         >
-                            <div className="bg-primary/50 hover:bg-primary opacity-0 group-hover:opacity-100 transition-opacity cursor-move flex items-center justify-center rounded-t-md py-0.5 shadow-sm w-full"
-                                 onPointerDown={e => { e.stopPropagation(); dragStartRef.current = { type: 'text-move', startX: e.clientX, startY: e.clientY, startXCoord: textInput.x, startYCoord: textInput.y }; }}>
-                                <Grid3X3 className="w-4 h-4 text-white" />
-                            </div>
-                            {/* Live KaTeX preview */}
-                            <div
-                                ref={mathPreviewRef}
-                                className="min-h-[30px] px-3 py-2 bg-white border border-b-0 border-gray-300 shadow-sm pointer-events-none select-none"
-                                style={{ fontSize: `${thickness * 6}px`, color: textInput.color, minWidth: '120px' }}
-                            >
-                                <span style={{ color: '#999' }}>Aperçu LaTeX...</span>
+                            <div className="relative" style={{ transform: 'translateY(-100%)' }}>
+                                <div className="absolute bottom-full left-0 bg-primary/50 hover:bg-primary opacity-0 group-hover:opacity-100 transition-opacity cursor-move flex items-center justify-center rounded-t-md py-0.5 shadow-sm w-fit min-w-[120px]"
+                                    onPointerDown={e => { e.stopPropagation(); dragStartRef.current = { type: 'text-move', startX: e.clientX, startY: e.clientY, startXCoord: textInput.x, startYCoord: textInput.y }; }}>
+                                    <Grid3X3 className="w-4 h-4 text-white" />
+                                </div>
+                                {/* Live KaTeX preview */}
+                                <div
+                                    ref={mathPreviewRef}
+                                    className="min-h-[30px] px-3 py-2 bg-white border border-b-0 border-gray-300 shadow-sm pointer-events-none select-none rounded-t-lg"
+                                    style={{ fontSize: `${thickness * 6}px`, color: textInput.color, minWidth: '120px' }}
+                                >
+                                    <span style={{ color: '#999' }}>Aperçu LaTeX...</span>
+                                </div>
                             </div>
                             {/* Raw LaTeX input */}
                             <textarea
                                 ref={textRef}
                                 autoFocus
-                                className="bg-gray-50 outline-none resize-none overflow-hidden px-3 py-2 rounded-b-lg border border-gray-300 shadow-sm font-mono text-sm"
+                                className="bg-gray-50 outline-none resize-none overflow-hidden px-3 py-2 rounded-b-lg border border-gray-300 shadow-sm font-mono text-sm relative"
                                 style={{ minWidth: '200px', minHeight: '36px', color: '#333' }}
                                 placeholder="\\frac{a}{b}, \\sqrt{x}, ..."
                                 onKeyDown={e => {
