@@ -24,10 +24,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
-import katexCSSRaw from 'katex/dist/katex.min.css?raw';
 
 const genId = () => Math.random().toString(36).substring(2, 10);
-const makeTab = (n, id = null) => ({ id: id || genId(), title: `Board ${n}`, canvasData: null, background: 'white', images: [] });
+const makeTab = (n, id = null) => ({ id: id || genId(), title: `Board ${n}`, canvasData: null, background: 'white', images: [], mathObjects: [] });
 
 const COLORS = ['#000000', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6'];
 
@@ -65,34 +64,6 @@ const TOOLS = [
     { id: 'imgselect', icon: MousePointer2, label: 'Sél. image' },
     { id: 'image', icon: ImagePlus, label: 'Image' },
 ];
-
-// Strip @font-face rules from KaTeX CSS (fonts can't load inside SVG data URLs)
-// and override all font-family references to use system serif fonts as fallbacks
-const katexCSSInline = katexCSSRaw
-    .replace(/@font-face\s*\{[^}]*\}/g, '')
-    + '\n.katex, .katex .mathnormal, .katex .mathit, .katex .mathrm, .katex .mathbf, .katex .mathbb, .katex .mathcal, .katex .mathfrak, .katex .mathscr, .katex .mathsf, .katex .mathtt { font-family: "Times New Roman", "Cambria Math", "STIX Two Math", serif !important; }'
-    + '\n.katex .mord, .katex .mopen, .katex .mclose, .katex .mpunct, .katex .mrel, .katex .mop, .katex .mbin, .katex .minner { font-family: "Times New Roman", "Cambria Math", serif !important; }';
-
-// Helper: render KaTeX to SVG data URL for canvas stamping (with inline CSS)
-function katexToSvgDataUrl(latex, fontSize = 20, color = '#000000') {
-    const html = katex.renderToString(latex, {
-        throwOnError: false,
-        displayMode: true,
-        output: 'html',
-    });
-    const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="2000" height="600">
-  <foreignObject width="100%" height="100%">
-    <div xmlns="http://www.w3.org/1999/xhtml">
-      <style>${katexCSSInline}</style>
-      <div style="font-size:${fontSize}px;color:${color};font-family:'Times New Roman','Cambria Math',serif;display:inline-block;padding:4px;">
-        ${html}
-      </div>
-    </div>
-  </foreignObject>
-</svg>`;
-    const blob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
-    return URL.createObjectURL(blob);
-}
 
 // Render KaTeX string for live preview (safe)
 function renderKatexPreview(latex) {
@@ -602,7 +573,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
             sendDataPacketFn({
                 type: 'tab-sync',
                 activeTabId,
-                tabsInfo: tabs.map(t => ({ id: t.id, title: t.title, background: t.background, images: t.images || [] })), // No canvasData to respect WebRTC limits
+                tabsInfo: tabs.map(t => ({ id: t.id, title: t.title, background: t.background, images: t.images || [], mathObjects: t.mathObjects || [] })), // No canvasData to respect WebRTC limits
             });
         };
         room.on(RoomEvent.ParticipantConnected, handleNewParticipant);
@@ -792,6 +763,10 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
                                         onBackgroundChange={changeBackground}
                                         onImagesChange={(tabId, newImages) => {
                                             setTabs(prev => prev.map(t => t.id === tabId ? { ...t, images: newImages } : t));
+                                            debouncedSave();
+                                        }}
+                                        onMathObjectsChange={(tabId, newMathObjects) => {
+                                            setTabs(prev => prev.map(t => t.id === tabId ? { ...t, mathObjects: newMathObjects } : t));
                                             debouncedSave();
                                         }}
                                     />
@@ -1086,7 +1061,7 @@ function TabExportImportButtons({ tabs, onImport, isProf, whiteboardRef, activeT
 }
 
 // ===== WHITEBOARD COMPONENT =====
-const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, locked, transparent, isProf, activeTabId, tabData, onBackgroundChange, onImagesChange }, ref) {
+const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, locked, transparent, isProf, activeTabId, tabData, onBackgroundChange, onImagesChange, onMathObjectsChange }, ref) {
     const room = useRoomContext();
     const canvasRef = useRef(null);
     const previewCanvasRef = useRef(null);
@@ -1119,6 +1094,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
     const [floatingImage, setFloatingImage] = useState(null);
     // Track images independently of the raster canvas so they can be moved without erasing background strokes
     const [localImages, setLocalImages] = useState(tabData?.images || []);
+    const [localMathObjects, setLocalMathObjects] = useState(tabData?.mathObjects || []);
     const dragStartRef = useRef(null);
     const prevTabIdRef = useRef(null); // null so first mount triggers canvas restore
     const lastDrawnDataRef = useRef(null);
@@ -1147,6 +1123,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
         const pCtx = previewCanvasRef.current?.getContext('2d');
         if (pCtx) pCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
         if (tabData?.images) setLocalImages(tabData.images);
+        if (tabData?.mathObjects) setLocalMathObjects(tabData.mathObjects); else setLocalMathObjects([]);
         if (tabData?.canvasData) {
             const img = new Image();
             img.onload = () => { ctx.drawImage(img, 0, 0, CANVAS_W, CANVAS_H); };
@@ -1215,24 +1192,13 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
             lines.forEach((line, i) => { ctx.fillText(line, data.x1, data.y1 + (i * lineHeight) + (data.thickness * 6)); });
         }
         else if (data.tool === 'math') {
-            // Math/LaTeX: stamp SVG onto canvas with inline CSS
-            const fontSize = data.thickness * 6;
-            const blobUrl = katexToSvgDataUrl(data.text, fontSize, data.color);
-            const img = new Image();
-            img.onload = () => {
-                const c = canvasRef.current;
-                if (!c) return;
-                const cx = c.getContext('2d');
-                cx.drawImage(img, data.x1, data.y1);
-                URL.revokeObjectURL(blobUrl);
-            };
-            img.onerror = () => URL.revokeObjectURL(blobUrl);
-            img.src = blobUrl;
+            // Math is rendered as DOM overlay, not on canvas — see localMathObjects
+            // Nothing to do here for canvas
         }
         ctx.restore();
     };
 
-    const clearCanvas = () => { const ctx = canvasRef.current?.getContext('2d'); ctx?.clearRect(0, 0, CANVAS_W, CANVAS_H); setLocalImages([]); onImagesChange(activeTabId, []); };
+    const clearCanvas = () => { const ctx = canvasRef.current?.getContext('2d'); ctx?.clearRect(0, 0, CANVAS_W, CANVAS_H); setLocalImages([]); onImagesChange(activeTabId, []); setLocalMathObjects([]); onMathObjectsChange(activeTabId, []); };
     const clearPreview = () => { const ctx = previewCanvasRef.current?.getContext('2d'); ctx?.clearRect(0, 0, CANVAS_W, CANVAS_H); };
 
     useEffect(() => {
@@ -1246,7 +1212,16 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                 if (data.type === 'draw') applyDrawing(data);
                 else if (data.type === 'clear') clearCanvas();
                 else if (data.type === 'text-live') setRemoteText({ x: data.x1, y: data.y1, text: data.text, color: data.color, size: data.thickness * 6 });
-                else if (data.type === 'text-commit') { applyDrawing(data); setRemoteText(null); }
+                else if (data.type === 'text-commit') {
+                    if (data.tool === 'math') {
+                        // Add math object as DOM overlay
+                        const mathObj = { id: genId(), x: data.x1, y: data.y1, rawText: data.text, color: data.color, thickness: data.thickness };
+                        setLocalMathObjects(prev => { const next = [...prev, mathObj]; onMathObjectsChange(activeTabId, next); return next; });
+                    } else {
+                        applyDrawing(data);
+                    }
+                    setRemoteText(null);
+                }
                 else if (data.type === 'image-add') {
                     setLocalImages(prev => { const next = [...prev, data.image]; onImagesChange(activeTabId, next); return next; });
                 }
@@ -1340,8 +1315,16 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
 
         if (textInput && tool !== 'text' && tool !== 'math') {
             const val = textRef.current?.value;
-            const commitTool = textInput.mathMode ? 'math' : 'text';
-            if (val && val.trim()) { const drawData = { type: 'text-commit', tool: commitTool, x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val, textType: textInput.mathMode ? 'MATH' : 'STANDARD', rawText: val }; applyDrawing(drawData); sendData(drawData); }
+            if (val && val.trim()) {
+                if (textInput.mathMode) {
+                    const mathObj = { id: genId(), x: textInput.x, y: textInput.y, rawText: val, color: textInput.color, thickness: textInput.thickness };
+                    setLocalMathObjects(prev => { const next = [...prev, mathObj]; onMathObjectsChange(activeTabId, next); return next; });
+                    sendData({ type: 'text-commit', tool: 'math', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val, textType: 'MATH', rawText: val });
+                } else {
+                    const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val, textType: 'STANDARD', rawText: val };
+                    applyDrawing(drawData); sendData(drawData);
+                }
+            }
             setTextInput(null);
         }
 
@@ -1349,8 +1332,16 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
             e.preventDefault();
             if (textInput) {
                 const val = textRef.current?.value;
-                const commitTool = textInput.mathMode ? 'math' : 'text';
-                if (val && val.trim()) { const drawData = { type: 'text-commit', tool: commitTool, x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val, textType: textInput.mathMode ? 'MATH' : 'STANDARD', rawText: val }; applyDrawing(drawData); sendData(drawData); }
+                if (val && val.trim()) {
+                    if (textInput.mathMode) {
+                        const mathObj = { id: genId(), x: textInput.x, y: textInput.y, rawText: val, color: textInput.color, thickness: textInput.thickness };
+                        setLocalMathObjects(prev => { const next = [...prev, mathObj]; onMathObjectsChange(activeTabId, next); return next; });
+                        sendData({ type: 'text-commit', tool: 'math', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val, textType: 'MATH', rawText: val });
+                    } else {
+                        const drawData = { type: 'text-commit', tool: 'text', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val, textType: 'STANDARD', rawText: val };
+                        applyDrawing(drawData); sendData(drawData);
+                    }
+                }
             }
             setTextInput({ x: pos.x, y: pos.y, color, thickness, mathMode: tool === 'math' });
             return;
@@ -1678,9 +1669,9 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                                         e.preventDefault();
                                         const val = textRef.current?.value;
                                         if (val && val.trim()) {
-                                            const drawData = { type: 'text-commit', tool: 'math', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val, textType: 'MATH', rawText: val };
-                                            applyDrawing(drawData);
-                                            sendData(drawData);
+                                            const mathObj = { id: genId(), x: textInput.x, y: textInput.y, rawText: val, color: textInput.color, thickness: textInput.thickness };
+                                            setLocalMathObjects(prev => { const next = [...prev, mathObj]; onMathObjectsChange(activeTabId, next); return next; });
+                                            sendData({ type: 'text-commit', tool: 'math', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val, textType: 'MATH', rawText: val });
                                         }
                                         setTextInput(null);
                                     }
@@ -1699,9 +1690,9 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                                 onBlur={e => {
                                     const val = e.target.value;
                                     if (val && val.trim()) {
-                                        const drawData = { type: 'text-commit', tool: 'math', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val, textType: 'MATH', rawText: val };
-                                        applyDrawing(drawData);
-                                        sendData(drawData);
+                                        const mathObj = { id: genId(), x: textInput.x, y: textInput.y, rawText: val, color: textInput.color, thickness: textInput.thickness };
+                                        setLocalMathObjects(prev => { const next = [...prev, mathObj]; onMathObjectsChange(activeTabId, next); return next; });
+                                        sendData({ type: 'text-commit', tool: 'math', x1: textInput.x, y1: textInput.y, color: textInput.color, thickness: textInput.thickness, text: val, textType: 'MATH', rawText: val });
                                     }
                                     setTextInput(null);
                                 }}
@@ -1709,6 +1700,16 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                         </div>
                     )}
                     
+                    {/* Committed math objects (DOM overlay — persisted like images) */}
+                    {localMathObjects.map(mo => (
+                        <div
+                            key={mo.id}
+                            className="absolute pointer-events-none z-16 select-none"
+                            style={{ left: mo.x, top: mo.y, fontSize: `${(mo.thickness || 3) * 6}px`, color: mo.color || '#000' }}
+                            dangerouslySetInnerHTML={{ __html: renderKatexPreview(mo.rawText) }}
+                        />
+                    ))}
+
                     {remoteText && <span className="absolute pointer-events-none z-30 whitespace-pre" style={{ left: remoteText.x, top: remoteText.y, color: remoteText.color, fontSize: `${remoteText.size}px`, fontFamily: 'Inter, sans-serif', lineHeight: 1.2, textShadow: '0 0 2px white' }}>{remoteText.text}</span>}
                 </div>
 
