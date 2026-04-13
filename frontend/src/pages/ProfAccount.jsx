@@ -130,7 +130,7 @@ export default function ProfAccount() {
                 });
 
                 // Fetch Stripe info & SetupIntent
-                const { subscriptionStatus, cancelAtPeriodEnd, currentPeriodEnd } = await api.get('/stripe/status');
+                const { subscriptionStatus, cancelAtPeriodEnd, currentPeriodEnd, stripeSubscriptionId } = await api.get('/stripe/status');
 
                 let secret = null;
                 if (['ACTIVE', 'TRIAL'].includes(subscriptionStatus) || subscriptionStatus) {
@@ -143,6 +143,7 @@ export default function ProfAccount() {
                     subscriptionStatus,
                     cancelAtPeriodEnd,
                     currentPeriodEnd,
+                    stripeSubscriptionId,
                     clientSecret: secret
                 }));
 
@@ -356,7 +357,12 @@ export default function ProfAccount() {
                             <CardContent className="space-y-4">
                                 {stripeInfo.subscriptionStatus === 'ACTIVE' || stripeInfo.subscriptionStatus === 'TRIAL' ? (
                                     <>
-                                        {stripeInfo.cancelAtPeriodEnd ? (
+                                        {!stripeInfo.stripeSubscriptionId && stripeInfo.subscriptionStatus === 'TRIAL' ? (
+                                            <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-200 text-sm flex items-start gap-2">
+                                                <CheckCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                                                <p>Période d'essai gratuite. Se termine le {new Date(stripeInfo.currentPeriodEnd * 1000).toLocaleDateString('fr-FR')}.</p>
+                                            </div>
+                                        ) : stripeInfo.cancelAtPeriodEnd ? (
                                             <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-200 text-sm flex items-start gap-2">
                                                 <XCircle className="w-4 h-4 mt-0.5 shrink-0" />
                                                 <p>Abonnement annulé. Se termine le {new Date(stripeInfo.currentPeriodEnd * 1000).toLocaleDateString('fr-FR')}.</p>
@@ -368,14 +374,20 @@ export default function ProfAccount() {
                                             </div>
                                         )}
 
-                                        <Button
-                                            variant={stripeInfo.cancelAtPeriodEnd ? "default" : "destructive"}
-                                            className="w-full"
-                                            onClick={handleToggleSub}
-                                            disabled={stripeInfo.loadingAction}
-                                        >
-                                            {stripeInfo.loadingAction ? 'Chargement...' : (stripeInfo.cancelAtPeriodEnd ? 'Réactiver l\'abonnement' : 'Annuler l\'abonnement')}
-                                        </Button>
+                                        {stripeInfo.stripeSubscriptionId ? (
+                                            <Button
+                                                variant={stripeInfo.cancelAtPeriodEnd ? "default" : "destructive"}
+                                                className="w-full"
+                                                onClick={handleToggleSub}
+                                                disabled={stripeInfo.loadingAction}
+                                            >
+                                                {stripeInfo.loadingAction ? 'Chargement...' : (stripeInfo.cancelAtPeriodEnd ? 'Réactiver l\'abonnement' : 'Annuler l\'abonnement')}
+                                            </Button>
+                                        ) : (
+                                            <Button variant="glow" className="w-full" asChild>
+                                                <Link to="/pricing">S'abonner maintenant</Link>
+                                            </Button>
+                                        )}
                                     </>
                                 ) : (
                                     <p className="text-sm text-muted-foreground">Aucun abonnement actif.</p>
