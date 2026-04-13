@@ -1194,10 +1194,11 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
             // Standard text rendering
             ctx.fillStyle = data.color;
             ctx.font = `${data.thickness * 6}px Inter, sans-serif`;
+            ctx.textBaseline = 'top';
             const lines = data.text.split('\n');
             const lineHeight = data.thickness * 6 * 1.2;
-            // Top-left anchor: first line baseline starts one font-height below the click point (data.y1)
-            lines.forEach((line, i) => { ctx.fillText(line, data.x1, data.y1 + (i * lineHeight) + (data.thickness * 6)); });
+            // Top-left anchor
+            lines.forEach((line, i) => { ctx.fillText(line, data.x1, data.y1 + (i * lineHeight)); });
         }
         else if (data.tool === 'math') {
             // Math is rendered as DOM overlay, not on canvas — see localMathObjects
@@ -1724,7 +1725,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                     {localMathObjects.map(mo => (
                         <div
                             key={mo.id}
-                            className="absolute pointer-events-none z-16 select-none"
+                            className="absolute pointer-events-none z-16 select-none px-3 py-2"
                             style={{ left: mo.x, top: mo.y, fontSize: `${(mo.thickness || 3) * 6}px`, color: mo.color || '#000' }}
                             dangerouslySetInnerHTML={{ __html: renderKatexPreview(mo.rawText) }}
                         />
