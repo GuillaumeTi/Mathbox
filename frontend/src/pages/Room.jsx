@@ -1196,9 +1196,8 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
             ctx.font = `${data.thickness * 6}px Inter, sans-serif`;
             const lines = data.text.split('\n');
             const lineHeight = data.thickness * 6 * 1.2;
-            // Bottom-left anchor: last line baseline sits at click point (data.y1)
-            const totalHeight = lines.length * lineHeight;
-            lines.forEach((line, i) => { ctx.fillText(line, data.x1, data.y1 - totalHeight + (i * lineHeight) + (data.thickness * 6)); });
+            // Top-left anchor: first line baseline starts one font-height below the click point (data.y1)
+            lines.forEach((line, i) => { ctx.fillText(line, data.x1, data.y1 + (i * lineHeight) + (data.thickness * 6)); });
         }
         else if (data.tool === 'math') {
             // Math is rendered as DOM overlay, not on canvas — see localMathObjects
@@ -1668,11 +1667,11 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                     {textInput && textInput.mathMode && (
                         <div
                             key={`math-${textInput.id}`}
-                            className="absolute z-50 group"
+                            className="absolute z-50 group flex flex-col"
                             style={{ left: textInput.x, top: textInput.y }}
                             onPointerDown={e => e.stopPropagation()}
                         >
-                            <div className="relative" style={{ transform: 'translateY(-100%)' }}>
+                            <div className="relative">
                                 <div className="absolute bottom-full left-0 bg-primary/50 hover:bg-primary opacity-0 group-hover:opacity-100 transition-opacity cursor-move flex items-center justify-center rounded-t-md py-0.5 shadow-sm w-fit min-w-[120px]"
                                     onPointerDown={e => { e.stopPropagation(); dragStartRef.current = { type: 'text-move', startX: e.clientX, startY: e.clientY, startXCoord: textInput.x, startYCoord: textInput.y }; }}>
                                     <Grid3X3 className="w-4 h-4 text-white" />
@@ -1726,7 +1725,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                         <div
                             key={mo.id}
                             className="absolute pointer-events-none z-16 select-none"
-                            style={{ left: mo.x, top: mo.y, transform: 'translateY(-100%)', fontSize: `${(mo.thickness || 3) * 6}px`, color: mo.color || '#000' }}
+                            style={{ left: mo.x, top: mo.y, fontSize: `${(mo.thickness || 3) * 6}px`, color: mo.color || '#000' }}
                             dangerouslySetInnerHTML={{ __html: renderKatexPreview(mo.rawText) }}
                         />
                     ))}
