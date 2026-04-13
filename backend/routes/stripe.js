@@ -73,6 +73,7 @@ router.get('/status', authMiddleware, async (req, res) => {
                 stripeSubscriptionId: true,
                 stripeCustomerId: true,
                 credits: true,
+                trialEndDate: true,
             },
         });
 
@@ -90,6 +91,9 @@ router.get('/status', authMiddleware, async (req, res) => {
                     console.error('Error fetching subscription from Stripe:', e);
                 }
             }
+        } else if (user.subscriptionStatus === 'TRIAL' && user.trialEndDate) {
+            currentPeriodEnd = Math.floor(new Date(user.trialEndDate).getTime() / 1000);
+            cancelAtPeriodEnd = true; // Trial stops at end unless upgraded
         }
 
         res.json({
