@@ -1352,7 +1352,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                     }
                 }
             }
-            setTextInput({ x: pos.x, y: pos.y, color, thickness, mathMode: tool === 'math' });
+            setTextInput({ id: genId(), x: pos.x, y: pos.y, color, thickness, mathMode: tool === 'math' });
             return;
         }
 
@@ -1498,6 +1498,10 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
     useEffect(() => {
         if (textInput) {
             sendData({ type: 'text-live', x1: textInput.x, y1: textInput.y, text: textRef.current?.value || '', color: textInput.color, thickness, mathMode: textInput.mathMode });
+            if (textRef.current) {
+                textRef.current.style.height = 'auto';
+                textRef.current.style.height = textRef.current.scrollHeight + 'px';
+            }
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [thickness]);
@@ -1656,7 +1660,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                         />
                     ))}
                     {textInput && !textInput.mathMode && (
-                        <div key={`text-${textInput.x}-${textInput.y}`} className="absolute z-50 group flex flex-col" style={{ left: textInput.x, top: textInput.y, transform: 'translateY(-100%)' }} onPointerDown={e => e.stopPropagation()}>
+                        <div key={`text-${textInput.id}`} className="absolute z-50 group flex flex-col" style={{ left: textInput.x, top: textInput.y, transform: 'translateY(-100%)' }} onPointerDown={e => e.stopPropagation()}>
                             <div className="bg-primary/50 hover:bg-primary opacity-0 group-hover:opacity-100 transition-opacity cursor-move flex items-center justify-center rounded-t-md py-0.5 shadow-sm w-full"
                                  onPointerDown={e => { e.stopPropagation(); dragStartRef.current = { type: 'text-move', startX: e.clientX, startY: e.clientY, startXCoord: textInput.x, startYCoord: textInput.y }; }}>
                                 <Grid3X3 className="w-4 h-4 text-white" />
@@ -1681,7 +1685,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                     )}
                     {textInput && textInput.mathMode && (
                         <div
-                            key={`math-${textInput.x}-${textInput.y}`}
+                            key={`math-${textInput.id}`}
                             className="absolute z-50 flex flex-col group"
                             style={{ left: textInput.x, top: textInput.y, transform: 'translateY(-100%)' }}
                             onPointerDown={e => e.stopPropagation()}
