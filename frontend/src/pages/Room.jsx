@@ -238,6 +238,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
     const [showValidateModal, setShowValidateModal] = useState(false);
     const [validating, setValidating] = useState(false);
     const [sessionDuration, setSessionDuration] = useState(0);
+    const [editedDuration, setEditedDuration] = useState(0); // User-editable duration for cost estimate
     const [validationResult, setValidationResult] = useState(null); // null | { billingMode, invoiceGenerated }
     const [courseHourlyRate, setCourseHourlyRate] = useState(null); // Fetched from course config
     const [savingLeave, setSavingLeave] = useState(false);
@@ -307,6 +308,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
                 // Calculate session duration in minutes
                 const durationMinutes = Math.round((new Date() - sessionStartRef.current) / 60000);
                 setSessionDuration(durationMinutes);
+                setEditedDuration(durationMinutes);
                 setSavingLeave(false);
                 setShowValidateModal(true);
             }, 50);
@@ -827,8 +829,9 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
                                         id="durationField"
                                         type="number"
                                         step="1"
-                                        min="1"
-                                        defaultValue={sessionDuration}
+                                        min="0"
+                                        value={editedDuration}
+                                        onChange={(e) => setEditedDuration(parseFloat(e.target.value) || 0)}
                                         placeholder="ex: 60"
                                     />
                                     <p className="text-xs text-muted-foreground">
@@ -851,7 +854,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
                                             <div className="flex justify-between text-xs text-muted-foreground">
                                                 <span>Coût estimé</span>
                                                 <strong className="text-primary">
-                                                    {((sessionDuration / 60) * courseHourlyRate).toFixed(2)} €
+                                                    {((editedDuration / 60) * courseHourlyRate).toFixed(2)} €
                                                 </strong>
                                             </div>
                                         )}
@@ -884,8 +887,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
                                         disabled={validating}
                                         onClick={() => {
                                             const genAI = document.getElementById('generateAI')?.checked;
-                                            const duration = document.getElementById('durationField')?.value;
-                                            confirmLeave(genAI, duration);
+                                            confirmLeave(genAI, editedDuration);
                                         }}
                                     >
                                         {validating ? 'Validation...' : 'Valider et quitter'}
