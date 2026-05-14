@@ -266,20 +266,22 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
     const [activeTabId, setActiveTabId] = useState(() => tabs[0]?.id || initTabs()[0].id);
     const whiteboardRef = useRef(null); // ref to get canvas snapshot
     const saveTimerRef = useRef(null);
+    const tabsRef = useRef(tabs); // Always-fresh ref for saveWhiteboard closure
+    useEffect(() => { tabsRef.current = tabs; }, [tabs]);
 
     // ===== PERSISTENCE (Prof only) =====
     const saveWhiteboard = useCallback(async (tabsToSave) => {
         if (!isProf) return;
         try {
-            // Get current canvas snapshot from Whiteboard component
-            let currentTabs = tabsToSave || tabs;
+            // Use tabsRef for always-fresh state (avoids stale closure)
+            let currentTabs = tabsToSave || tabsRef.current;
             if (whiteboardRef.current?.getCanvasSnapshot) {
                 const snapshot = whiteboardRef.current.getCanvasSnapshot();
                 currentTabs = currentTabs.map(t => t.id === activeTabId ? { ...t, canvasData: snapshot } : t);
             }
             await api.post(`/room/whiteboard/${courseId}`, { tabs: currentTabs });
         } catch (e) { console.error('[Whiteboard] Save failed:', e); }
-    }, [isProf, tabs, activeTabId, courseId]);
+    }, [isProf, activeTabId, courseId]);
 
     const debouncedSave = useCallback(() => {
         if (!isProf) return;
