@@ -438,6 +438,13 @@ router.post('/validate-session', authMiddleware, async (req, res) => {
                 select: { id: true, name: true, parentId: true }
             });
 
+            // Check professor subscription status
+            const prof = await prisma.user.findUnique({
+                where: { id: req.user.id },
+                select: { subscriptionStatus: true, trialEndDate: true }
+            });
+            const hasValidSub = ['ACTIVE', 'TRIAL'].includes(prof?.subscriptionStatus) && (!prof?.trialEndDate || prof.trialEndDate.getTime() > Date.now());
+
             // Save the ClassSession record
             const classSession = await prisma.classSession.create({
                 data: {
@@ -451,7 +458,9 @@ router.post('/validate-session', authMiddleware, async (req, res) => {
                 }
             });
 
-            if (billingMode === 'PER_CLASS' && student?.parentId && ratePerHour > 0) {
+            if (!hasValidSub) {
+                invoiceGenerated = false;
+            } else if (billingMode === 'PER_CLASS' && student?.parentId && ratePerHour > 0) {
                 // ============ PER_CLASS logic ============
                 const { generateInvoicePDF } = require('../services/pdfGenerator');
 
@@ -620,6 +629,7 @@ router.post('/validate-session', authMiddleware, async (req, res) => {
             success: true,
             billingMode,
             invoiceGenerated,
+            noSubscription: typeof hasValidSub !== 'undefined' ? !hasValidSub : false,
             synthesis: {
                 sessionId,
                 courseTitle: course.title || course.subject || 'Session',
