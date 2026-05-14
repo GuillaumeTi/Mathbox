@@ -355,7 +355,7 @@ export default function ProfAccount() {
                                 <CardTitle>Abonnement Pro</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-4">
-                                {(['ACTIVE', 'TRIAL'].includes(stripeInfo.subscriptionStatus)) && (!stripeInfo.currentPeriodEnd || stripeInfo.currentPeriodEnd * 1000 > Date.now()) ? (
+                                {(stripeInfo.subscriptionStatus === 'ACTIVE') || (stripeInfo.subscriptionStatus === 'TRIAL' && (!stripeInfo.currentPeriodEnd || stripeInfo.currentPeriodEnd * 1000 > Date.now())) ? (
                                     <>
                                         {!stripeInfo.stripeSubscriptionId && stripeInfo.subscriptionStatus === 'TRIAL' ? (
                                             <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-200 text-sm flex items-start gap-2">

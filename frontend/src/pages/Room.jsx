@@ -837,7 +837,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
                                 </div>
 
                                 {/* Show locked hourly rate from course config */}
-                                {['ACTIVE', 'TRIAL'].includes(user?.subscriptionStatus) && (!user?.trialEndDate || new Date(user.trialEndDate).getTime() > Date.now()) ? (
+                                {(user?.subscriptionStatus === 'ACTIVE' || (user?.subscriptionStatus === 'TRIAL' && (!user?.trialEndDate || new Date(user.trialEndDate).getTime() > Date.now()))) ? (
                                     <div className="p-3 rounded-lg border border-border/50 bg-secondary/30 space-y-1">
                                         <div className="flex justify-between text-sm">
                                             <span className="text-muted-foreground">Taux horaire configuré</span>

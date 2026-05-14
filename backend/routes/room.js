@@ -443,7 +443,7 @@ router.post('/validate-session', authMiddleware, async (req, res) => {
                 where: { id: req.user.id },
                 select: { subscriptionStatus: true, trialEndDate: true }
             });
-            const hasValidSub = ['ACTIVE', 'TRIAL'].includes(prof?.subscriptionStatus) && (!prof?.trialEndDate || prof.trialEndDate.getTime() > Date.now());
+            const hasValidSub = prof?.subscriptionStatus === 'ACTIVE' || (prof?.subscriptionStatus === 'TRIAL' && (!prof?.trialEndDate || prof.trialEndDate.getTime() > Date.now()));
 
             // Save the ClassSession record
             const classSession = await prisma.classSession.create({
