@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
-import { Coins, CheckCircle, Loader2 } from 'lucide-react';
+import { Coins, CheckCircle, Loader2, CreditCard, Brain, Shield, Zap } from 'lucide-react';
 
 let stripePromise = null;
 
@@ -19,11 +19,11 @@ function getStripePromise() {
 }
 
 const CREDIT_PACKS = [
-    { id: '5credits', name: '5 Crédits IA', credits: 5, description: 'Pack découverte' },
-    { id: '10credits', name: '10 Crédits IA', credits: 10, description: 'Pack standard' },
+    { id: '5credits', name: '5 Crédits IA', credits: 5, price: '4.90', pricePerCredit: '0.98', description: 'Pack découverte' },
+    { id: '10credits', name: '10 Crédits IA', credits: 10, price: '9.80', pricePerCredit: '0.98', description: 'Pack standard', recommended: true },
 ];
 
-function PaymentForm({ onSuccess, onCancel }) {
+function PaymentForm({ selectedPack, onSuccess, onCancel }) {
     const stripe = useStripe();
     const elements = useElements();
     const [loading, setLoading] = useState(false);
@@ -61,6 +61,12 @@ function PaymentForm({ onSuccess, onCancel }) {
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Recap line */}
+            <div className="flex justify-between items-center p-3 rounded-lg bg-amber-500/5 border border-amber-500/20 text-sm">
+                <span className="text-muted-foreground">{selectedPack.name}</span>
+                <span className="font-bold text-amber-400">{selectedPack.price}€</span>
+            </div>
+
             <PaymentElement />
             {error && (
                 <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
@@ -69,10 +75,10 @@ function PaymentForm({ onSuccess, onCancel }) {
             )}
             <div className="flex gap-3">
                 <Button type="button" variant="outline" className="flex-1" onClick={onCancel} disabled={loading}>
-                    Annuler
+                    Retour
                 </Button>
                 <Button type="submit" variant="glow" className="flex-1" disabled={!stripe || loading}>
-                    {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Traitement...</> : <><Coins className="w-4 h-4 mr-2" />Payer</>}
+                    {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Traitement...</> : <><CreditCard className="w-4 h-4 mr-2" />Payer {selectedPack.price}€</>}
                 </Button>
             </div>
         </form>
@@ -80,21 +86,26 @@ function PaymentForm({ onSuccess, onCancel }) {
 }
 
 export default function BuyCreditsModal({ isOpen, onClose }) {
+    const [step, setStep] = useState('select'); // 'select' | 'payment' | 'success'
     const [selectedPack, setSelectedPack] = useState(null);
     const [clientSecret, setClientSecret] = useState(null);
     const [loading, setLoading] = useState(false);
-    const [success, setSuccess] = useState(false);
     const [error, setError] = useState(null);
     const { fetchMe } = useAuthStore();
 
-    const handleSelectPack = async (pack) => {
+    const handleSelectPack = (pack) => {
         setSelectedPack(pack);
+    };
+
+    const handleProceedToPayment = async () => {
+        if (!selectedPack) return;
         setLoading(true);
         setError(null);
 
         try {
-            const data = await api.post('/stripe/create-credit-intent', { packId: pack.id });
+            const data = await api.post('/stripe/create-credit-intent', { packId: selectedPack.id });
             setClientSecret(data.clientSecret);
+            setStep('payment');
         } catch (err) {
             setError(err.message);
         }
@@ -102,20 +113,20 @@ export default function BuyCreditsModal({ isOpen, onClose }) {
     };
 
     const handleSuccess = async () => {
-        setSuccess(true);
+        setStep('success');
         await fetchMe();
     };
 
     const handleClose = () => {
+        setStep('select');
         setSelectedPack(null);
         setClientSecret(null);
-        setSuccess(false);
         setError(null);
         onClose();
     };
 
     const handleBack = () => {
-        setSelectedPack(null);
+        setStep('select');
         setClientSecret(null);
         setError(null);
     };
@@ -127,12 +138,17 @@ export default function BuyCreditsModal({ isOpen, onClose }) {
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                        <Coins className="w-5 h-5 text-amber-400" />
-                        {success ? 'Crédits ajoutés !' : 'Acheter des Crédits IA'}
+                        {step === 'success' ? (
+                            <><CheckCircle className="w-5 h-5 text-emerald-400" /> Crédits ajoutés !</>
+                        ) : step === 'payment' ? (
+                            <><CreditCard className="w-5 h-5 text-primary" /> Paiement</>
+                        ) : (
+                            <><Brain className="w-5 h-5 text-amber-400" /> Acheter des Crédits IA</>
+                        )}
                     </DialogTitle>
                 </DialogHeader>
 
-                {success ? (
+                {step === 'success' ? (
                     <div className="text-center py-6 space-y-4">
                         <CheckCircle className="w-16 h-16 text-emerald-400 mx-auto" />
                         <p className="text-lg font-medium">{selectedPack?.credits} crédits ajoutés !</p>
@@ -141,38 +157,77 @@ export default function BuyCreditsModal({ isOpen, onClose }) {
                         </p>
                         <Button variant="glow" onClick={handleClose}>Continuer</Button>
                     </div>
-                ) : !selectedPack ? (
-                    <div className="space-y-3 py-2">
-                        {CREDIT_PACKS.map(pack => (
-                            <button
-                                key={pack.id}
-                                onClick={() => handleSelectPack(pack)}
-                                className="w-full p-4 rounded-lg border border-border bg-secondary/30 hover:bg-secondary/60 hover:border-primary/50 transition-all text-left group"
-                            >
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <p className="font-semibold group-hover:text-primary transition-colors">{pack.name}</p>
-                                        <p className="text-sm text-muted-foreground">{pack.description}</p>
+                ) : step === 'select' ? (
+                    <div className="space-y-4">
+                        <p className="text-sm text-muted-foreground">
+                            Choisissez un pack de crédits pour utiliser l'assistant IA dans vos cours.
+                        </p>
+
+                        {/* Pack selection */}
+                        <div className="space-y-3">
+                            {CREDIT_PACKS.map(pack => (
+                                <button
+                                    key={pack.id}
+                                    onClick={() => handleSelectPack(pack)}
+                                    className={`w-full p-4 rounded-lg border transition-all text-left group relative ${
+                                        selectedPack?.id === pack.id
+                                            ? 'border-primary bg-primary/10 ring-1 ring-primary/30'
+                                            : 'border-border bg-secondary/30 hover:bg-secondary/60 hover:border-primary/50'
+                                    }`}
+                                >
+                                    {pack.recommended && (
+                                        <span className="absolute -top-2 right-3 text-[10px] px-2 py-0.5 rounded-full bg-amber-500 text-white font-medium">
+                                            Meilleur choix
+                                        </span>
+                                    )}
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className={`font-semibold transition-colors ${selectedPack?.id === pack.id ? 'text-primary' : 'group-hover:text-primary'}`}>
+                                                {pack.name}
+                                            </p>
+                                            <p className="text-xs text-muted-foreground mt-0.5">
+                                                {pack.description} — {pack.pricePerCredit}€ / crédit
+                                            </p>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-xl font-black">{pack.price}€</p>
+                                        </div>
                                     </div>
-                                    <Coins className="w-6 h-6 text-amber-400" />
-                                </div>
-                            </button>
-                        ))}
-                    </div>
-                ) : loading ? (
-                    <div className="text-center py-8">
-                        <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary mb-3" />
-                        <p className="text-sm text-muted-foreground">Préparation du paiement...</p>
-                    </div>
-                ) : error ? (
-                    <div className="text-center py-6 space-y-4">
-                        <p className="text-sm text-red-400">{error}</p>
-                        <div className="flex gap-3 justify-center">
-                            <Button variant="outline" onClick={handleBack}>Retour</Button>
-                            <Button variant="outline" onClick={handleClose}>Fermer</Button>
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Trust badges */}
+                        <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1"><Shield className="w-3.5 h-3.5" /> Paiement sécurisé</span>
+                            <span className="flex items-center gap-1"><Zap className="w-3.5 h-3.5" /> Activation immédiate</span>
+                        </div>
+
+                        {error && (
+                            <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
+                                {error}
+                            </div>
+                        )}
+
+                        <div className="flex gap-3">
+                            <Button variant="outline" className="flex-1" onClick={handleClose}>
+                                Annuler
+                            </Button>
+                            <Button
+                                variant="glow"
+                                className="flex-1"
+                                onClick={handleProceedToPayment}
+                                disabled={!selectedPack || loading}
+                            >
+                                {loading ? (
+                                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Chargement...</>
+                                ) : (
+                                    <><CreditCard className="w-4 h-4 mr-2" />Continuer{selectedPack ? ` — ${selectedPack.price}€` : ''}</>
+                                )}
+                            </Button>
                         </div>
                     </div>
-                ) : clientSecret && stripePromise ? (
+                ) : step === 'payment' && clientSecret && stripePromise ? (
                     <Elements
                         stripe={stripePromise}
                         options={{
@@ -188,7 +243,7 @@ export default function BuyCreditsModal({ isOpen, onClose }) {
                             },
                         }}
                     >
-                        <PaymentForm onSuccess={handleSuccess} onCancel={handleBack} />
+                        <PaymentForm selectedPack={selectedPack} onSuccess={handleSuccess} onCancel={handleBack} />
                     </Elements>
                 ) : null}
             </DialogContent>
