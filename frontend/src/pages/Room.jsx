@@ -945,9 +945,13 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
                                         <p className="text-sm text-muted-foreground">
                                             {validationResult.noSubscription
                                                 ? 'La séance a été enregistrée, mais vous n\'avez pas d\'abonnement actif pour générer une facture.'
+                                                : validationResult.synthesis?.durationMinutes === 0
+                                                ? 'La séance a été enregistrée. La durée étant de 0 minute, aucune facture n\'a été générée.'
+                                                : (!course?.studentId)
+                                                ? 'La séance a été enregistrée. Aucun élève n\'est assigné à ce cours, donc aucune facture n\'a été générée.'
                                                 : validationResult.billingMode === 'MONTHLY'
                                                 ? 'La séance a été enregistrée. La facture de solde sera générée à la fin du mois ou manuellement depuis l\'onglet Facturation.'
-                                                : 'La séance a été enregistrée. Aucun élève n\'est assigné à ce cours, donc aucune facture n\'a été générée.'}
+                                                : 'La séance a été enregistrée, mais la facture n\'a pas pu être générée automatiquement.'}
                                         </p>
                                         <Button variant="glow" className="w-full" onClick={leaveAfterResult}>Quitter</Button>
                                     </div>
