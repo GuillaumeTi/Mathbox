@@ -837,27 +837,39 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
                                 </div>
 
                                 {/* Show locked hourly rate from course config */}
-                                <div className="p-3 rounded-lg border border-border/50 bg-secondary/30 space-y-1">
-                                    <div className="flex justify-between text-sm">
-                                        <span className="text-muted-foreground">Taux horaire configuré</span>
-                                        {courseHourlyRate != null ? (
-                                            <span className="font-semibold text-emerald-400">{courseHourlyRate} €/h 🔒</span>
-                                        ) : (
-                                            <span className="text-amber-400 text-xs">Non configuré — facture à 0 €</span>
-                                        )}
-                                    </div>
-                                    {courseHourlyRate != null && (
-                                        <div className="flex justify-between text-xs text-muted-foreground">
-                                            <span>Coût estimé</span>
-                                            <strong className="text-primary">
-                                                {((sessionDuration / 60) * courseHourlyRate).toFixed(2)} €
-                                            </strong>
+                                {['ACTIVE', 'TRIAL'].includes(user?.subscriptionStatus) && (!user?.trialEndDate || new Date(user.trialEndDate).getTime() > Date.now()) ? (
+                                    <div className="p-3 rounded-lg border border-border/50 bg-secondary/30 space-y-1">
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-muted-foreground">Taux horaire configuré</span>
+                                            {courseHourlyRate != null ? (
+                                                <span className="font-semibold text-emerald-400">{courseHourlyRate} €/h 🔒</span>
+                                            ) : (
+                                                <span className="text-amber-400 text-xs">Non configuré — facture à 0 €</span>
+                                            )}
                                         </div>
-                                    )}
-                                    <p className="text-xs text-muted-foreground/60">
-                                        Selon le mode de facturation, une facture sera générée ou enregistrée pour la fin du mois.
-                                    </p>
-                                </div>
+                                        {courseHourlyRate != null && (
+                                            <div className="flex justify-between text-xs text-muted-foreground">
+                                                <span>Coût estimé</span>
+                                                <strong className="text-primary">
+                                                    {((sessionDuration / 60) * courseHourlyRate).toFixed(2)} €
+                                                </strong>
+                                            </div>
+                                        )}
+                                        <p className="text-xs text-muted-foreground/60">
+                                            Selon le mode de facturation, une facture sera générée ou enregistrée pour la fin du mois.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="p-3 rounded-lg border border-red-500/20 bg-red-500/10 space-y-1">
+                                        <p className="text-sm text-red-400 font-medium flex items-center gap-2">
+                                            <AlertTriangle className="w-4 h-4" />
+                                            Abonnement requis
+                                        </p>
+                                        <p className="text-xs text-red-300/80">
+                                            Vous n'avez pas d'abonnement actif. La séance sera enregistrée, mais aucune facture ne sera générée.
+                                        </p>
+                                    </div>
+                                )}
 
                                 <div className="flex items-center gap-2 border p-3 rounded-lg border-primary/20 bg-primary/5">
                                     <input type="checkbox" id="generateAI" defaultChecked className="w-4 h-4 rounded text-primary cursor-pointer" />

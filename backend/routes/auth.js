@@ -170,6 +170,7 @@ router.post('/login', async (req, res) => {
                 subjects: user.subjects,
                 credits: user.credits,
                 subscriptionStatus: user.subscriptionStatus,
+                trialEndDate: user.trialEndDate,
                 needsPasswordSetup: user.needsPasswordSetup,
                 legalStatus: user.legalStatus,
                 siret: user.siret,
