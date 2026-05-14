@@ -215,7 +215,7 @@ function RoomContent({ courseCode, sessionId, courseId, user, initialWhiteboardS
     const [messages, setMessages] = useState([]);
     const allCameraTracks = useTracks([Track.Source.Camera], { onlySubscribed: false });
     const screenShareTracks = useTracks([Track.Source.ScreenShare], { onlySubscribed: false });
-    const [viewMode, setViewMode] = useState('BOARD'); // prep mode always BOARD
+    const [viewMode, setViewMode] = useState(prepMode ? 'BOARD' : 'VIDEO'); // Camera by default, whiteboard for prep
     const [chatOpen, setChatOpen] = useState(false);
     const [locked, setLocked] = useState(false);
     const [screenSharing, setScreenSharing] = useState(false);
@@ -1577,7 +1577,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                 <button onClick={resetZoom} className="w-8 h-6 rounded text-[10px] text-gray-500 hover:text-white hover:bg-gray-700 flex items-center justify-center" title="Reset zoom">{Math.round(scale * 100)}%</button>
             </div>
 
-            <div ref={wrapperRef} className="flex-1 relative overflow-hidden bg-gray-200 dark:bg-gray-800" onPointerLeave={() => setCursorPos(null)}>
+            <div ref={wrapperRef} className={`flex-1 relative overflow-hidden ${transparent ? 'bg-transparent' : 'bg-gray-200 dark:bg-gray-800'}`} onPointerLeave={() => setCursorPos(null)}>
                 {floatingImage && (
                     <div
                         className="absolute z-30 border-2 border-primary border-dashed group cursor-move"
@@ -1631,7 +1631,7 @@ const Whiteboard = React.forwardRef(function Whiteboard({ localParticipant, lock
                     width: CANVAS_W, height: CANVAS_H,
                     transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
                     transformOrigin: '0 0',
-                    boxShadow: '0 0 40px rgba(0,0,0,0.1)',
+                    boxShadow: transparent ? 'none' : '0 0 40px rgba(0,0,0,0.1)',
                     ...(!transparent ? bgStyle : {})
                 }}>
                     <canvas
